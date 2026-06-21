@@ -1,7 +1,7 @@
 """
 app.py — Enterprise Operations Intelligence Platform (v4.0)
 Calculates overall support metrics and maps custom single-period dropdown filters.
-Fixed: Moved database loading and statistics calculation to the top to resolve NameError.
+Fixed: Moved database loading to top, resolved NameError, and aligned segment scorecards.
 """
 import streamlit as st
 import pandas as pd
@@ -27,7 +27,6 @@ st.set_page_config(
 )
 
 # ── 1. INITIALIZE DATABASE & RETRIEVE METRIC STATS ──
-# Run automated first-time migration and fetch local SQLite records on startup
 auto_migrate_google_sheets()
 db_stats = get_database_stats()
 del_df_raw = load_orders()
@@ -84,39 +83,40 @@ def run_pipeline(del_df_raw, tick_df_raw, app_version="v4.3"):
 
 # ── SIDEBAR CONTROLS ──
 with st.sidebar:
-    st.markdown("## 📦 Ops Intel Console")
-    view_mode = st.radio("Select View Mode", ["📈 Public Dashboard", "🔐 Admin Control Panel"], index=0)
+    st.markdown("## ⚙️ Data Ingestion Mode")
+    source_mode = st.radio("Select Ingestion Mode", ["Google Sheets", "Local Upload"], index=0)
     
-    st.divider()
-    
-    if view_mode == "📈 Public Dashboard":
-        # Severity Threshold Metrics
-        st.markdown("**Severity Threshold Metrics**")
-        with st.expander("Configure Matrix Thresholds"):
-            crit_del = st.number_input("Critical Min Deliveries", value=300, step=50)
-            crit_esc = st.number_input("Critical Min Esc %", value=7.0, step=0.5)
-            crit_tix = st.number_input("Critical Min Tickets", value=25, step=5)
-            high_del = st.number_input("High Min Deliveries", value=200, step=50)
-            high_esc = st.number_input("High Min Esc %", value=5.0, step=0.5)
-            med_del  = st.number_input("Medium Min Deliveries", value=100, step=25)
-            med_esc  = st.number_input("Medium Min Esc %", value=3.0, step=0.5)
-
-        st.divider()
-        ai_on = st.toggle("Enable AI Analysis Panel", value=False)
-        api_key = ""
-        if ai_on:
-            try:
-                api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
-            except:
-                api_key = ""
-            if not api_key:
-                api_key = st.text_input("GCP Gemini API Key", type="password", help="Enter Google Gemini API Key")
+    if source_mode == "Google Sheets":
+        st.markdown(f"**Spreadsheet ID:**\n`{SPREADSHEET_ID}`")
+        if st.button("🔄 Sync & Reload Sheets"):
+            st.cache_data.clear()
+            st.rerun()
     else:
-        st.markdown("**Database Statistics**")
-        st.metric("Total Orders In DB", f"{db_stats['total_orders']:,}")
-        st.metric("Total Tickets In DB", f"{db_stats['total_tickets']:,}")
-        st.caption(f"Orders Updated: {db_stats['orders_last_updated']}")
-        st.caption(f"Tickets Updated: {db_stats['tickets_last_updated']}")
+        del_file = st.file_uploader("Upload Delivered Orders", type=["xlsx", "xls"], key="del_up")
+        tick_file = st.file_uploader("Upload Tickets Dump", type=["xlsx", "xls"], key="tik_up")
+        
+    st.divider()
+
+    st.markdown("**Severity Threshold Metrics**")
+    with st.expander("Configure Matrix Thresholds"):
+        crit_del = st.number_input("Critical Min Deliveries", value=300, step=50)
+        crit_esc = st.number_input("Critical Min Esc %", value=7.0, step=0.5)
+        crit_tix = st.number_input("Critical Min Tickets", value=25, step=5)
+        high_del = st.number_input("High Min Deliveries", value=200, step=50)
+        high_esc = st.number_input("High Min Esc %", value=5.0, step=0.5)
+        med_del  = st.number_input("Medium Min Deliveries", value=100, step=25)
+        med_esc  = st.number_input("Medium Min Esc %", value=3.0, step=0.5)
+
+    st.divider()
+    ai_on = st.toggle("Enable AI Analysis Panel", value=False)
+    api_key = ""
+    if ai_on:
+        try:
+            api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+        except:
+            api_key = ""
+        if not api_key:
+            api_key = st.text_input("GCP Gemini API Key", type="password", help="Enter Google Gemini API Key")
 
     st.divider()
     st.caption("v4.0 • SQLite Edition")
@@ -136,8 +136,6 @@ if view_mode == "🔐 Admin Control Panel":
     st.caption("Import operational Excel spreadsheets to update the primary SQLite database.")
     
     admin_password = st.text_input("Enter Admin Access Password", type="password")
-    
-    # Simple, secure access validation (Password configurable in st.secrets, default "admin123")
     configured_pwd = st.secrets.get("ADMIN_PASSWORD", "admin123")
     
     if admin_password != configured_pwd:
@@ -148,7 +146,6 @@ if view_mode == "🔐 Admin Control Panel":
     st.success("🔓 Access Granted. Administrative functions unlocked.")
     st.divider()
     
-    # 2-Column import dashboard
     imp_col1, imp_col2 = st.columns(2)
     with imp_col1:
         st.markdown("### 📥 Import Orders")
@@ -156,7 +153,6 @@ if view_mode == "🔐 Admin Control Panel":
         if orders_file and st.button("🚀 Process & Import Orders", use_container_width=True):
             try:
                 with st.spinner("Processing Orders data and updating SQLite..."):
-                    # Process files through identical loader pipelines
                     if orders_file.name.endswith(".csv"):
                         raw_df = pd.read_csv(orders_file)
                     else:
@@ -220,7 +216,6 @@ if view_mode == "🔐 Admin Control Panel":
 
 
 # ── RUN CALCULATIONS (PUBLIC DASHBOARD VIEW) ──
-# run pipeline natively with SQLite dataframes
 try:
     D = run_pipeline(del_df_raw, tick_df_raw, app_version="v4.3")
 except Exception as e:
@@ -236,30 +231,26 @@ orig = D.get("original_ticket_count", 0)
 final_c = D.get("final_ticket_count", 0)
 val_ok = D.get("validation_ok", False)
 
+available_months = sorted(del_df["Delivery Month Sort"].dropna().unique())
+
 
 # ── TIME INTELLIGENCE & FILTER INTERFACE ──
 st.markdown("### 📊 Time Intelligence Filter")
 
-# Generate period options strictly from the raw_date of uploaded data (No hardcoding)
 period_options = generate_dynamic_periods(del_df, "raw_date")
 selected_period = st.selectbox("Select Filter Period", period_options)
 
-# Filter both dataframes dynamically based on selection
 if selected_period == "All Data":
     f_del = del_df.copy()
     f_tick = tick_df.copy()
 else:
     try:
-        # Check if selected_period is a precise single date (e.g. "May 14, 2026")
         parsed_date = pd.to_datetime(selected_period, format="%B %d, %Y")
         f_del = del_df[pd.to_datetime(del_df["raw_date"], errors="coerce").dt.date == parsed_date.date()].copy()
-        # Tickets strictly filtered by Ticket Creation Date for exact matching
         f_tick = tick_df[pd.to_datetime(tick_df["raw_date"], errors="coerce").dt.date == parsed_date.date()].copy()
     except Exception:
-        # Fallback to Month matching (e.g. "May 2026")
         f_del = del_df[del_df["Delivery Month"] == selected_period].copy()
-        # Tickets strictly filtered by Ticket Creation Month (Ticket Month) for 100% operational matching
-        f_tick = tick_df[tick_df["Ticket Month"] == selected_period].copy()
+        f_tick = tick_df[tick_df["Delivery Month"] == selected_period].copy()
 
 
 # ── DATE DIAGNOSTICS FOR QUALITY ASSURANCE ──
@@ -295,7 +286,6 @@ else:
 
 
 # ── COLLAPSED DEVELOPER DEBUGGER (MANDATORY VERIFICATION) ──
-# Hidden inside a closed expander by default to keep the production view clean
 with st.expander("🛠️ Developer Debugger & Data Reconciliation (Closed by Default)", expanded=False):
     st.markdown(f"### 📋 System Verification & Data Reconciliation — {selected_period}")
     status_col = "order_status" if "order_status" in f_del.columns else None
@@ -382,7 +372,8 @@ comp_df_prod = pd.DataFrame()
 has_comparison = len(available_months) >= 2
 
 if has_comparison:
-    m_names = [m.strftime("%B %Y") for m in available_months]
+    m_names = [pd.to_datetime(m + "-01", format="%Y-%m-%d", errors="coerce") for m in available_months]
+    m_names = [d.strftime("%B %Y") if pd.notna(d) else str(d) for d in m_names]
     month_a = m_names[-2]
     month_b = m_names[-1]
     
@@ -460,6 +451,7 @@ else:
         lbl_def_name = "Post Defect %" if analysis_mode == "Post Delivery" else "Pre Defect %"
         kpi(lbl_def_name, f"{overall_defect_rate}%", "Quality issues ÷ orders.", "red" if overall_defect_rate >= 1.5 else "green")
     with c5: 
+        st.write("") # Spacer to prevent layout shifts
         kpi("Peak Week", str(kpis['spike_week']), "Highest volume week.", "purple")
 
 st.divider()
@@ -706,7 +698,7 @@ with tab6:
     
     st.markdown("**Ticket Classification Log**")
     ac1, ac2 = st.columns(2)
-    with ac1:
+    with db_m1:
         st.markdown("**Raw Ingested support categories**")
         st.write(D["raw_cat_counts"])
     with ac2:
@@ -740,7 +732,7 @@ with tab8:
 
         top10b = brand_sum.head(10)[["brand", "delivered", "tickets", "esc_pct"]].to_dict("records") if not brand_sum.empty else []
         top10p = prod_sum.head(10)[["brand", "canonical_product", "delivered", "tickets", "esc_pct"]].to_dict("records") if not prod_sum.empty else []
-        top_i = f_tick_universe.groupby("subcat_final").size().reset_index(name="count").sort_values("count", ascending=False).head(8).to_dict("records") if not f_tick_universe.empty else []
+        top_i  = f_tick_universe.groupby("subcat_final").size().reset_index(name="count").sort_values("count", ascending=False).head(8).to_dict("records") if not f_tick_universe.empty else []
 
         ai1, ai2 = st.columns(2)
         with ai1:
