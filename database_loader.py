@@ -1,7 +1,7 @@
 """
 database_loader.py — Production-grade SQLite Database Sync Module (v5.0)
 Replaces Google Sheets with operations.db local SQLite storage layer.
-Fixed: Replaced f-strings with raw URL literals to prevent syntax errors during sheet ID parsing.
+Fixed: Implemented try-finally connection safety and WAL journal mode to prevent database locks.
 """
 import os
 import sqlite3
@@ -17,46 +17,50 @@ SPREADSHEET_ID = "1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg"
 
 def get_connection():
     """Establishes and returns a connection to the local SQLite database."""
-    # Added 30 seconds busy timeout to prevent concurrent database lock blocks
-    return sqlite3.connect(DB_PATH, timeout=30.0)
+    # Added 30 seconds busy timeout and enabled WAL mode for concurrent reading/writing
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
 
 
 def init_db():
     """Creates the operational schema tables if they do not exist."""
     conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Metadata config table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS config (
-        setting TEXT PRIMARY KEY,
-        value TEXT
-    )
-    """)
-    
-    # Brand Registry
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS brand_registry (
-        canonical_brand TEXT PRIMARY KEY,
-        aliases TEXT,
-        confidence REAL
-    )
-    """)
-    
-    # Product Registry
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS product_registry (
-        canonical_product TEXT,
-        brand TEXT,
-        variants TEXT,
-        sku TEXT,
-        confidence REAL,
-        PRIMARY KEY (canonical_product, brand)
-    )
-    """)
-    
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        
+        # Metadata config table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS config (
+            setting TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """)
+        
+        # Brand Registry
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS brand_registry (
+            canonical_brand TEXT PRIMARY KEY,
+            aliases TEXT,
+            confidence REAL
+        )
+        """)
+        
+        # Product Registry
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS product_registry (
+            canonical_product TEXT,
+            brand TEXT,
+            variants TEXT,
+            sku TEXT,
+            confidence REAL,
+            PRIMARY KEY (canonical_product, brand)
+        )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def sanitize_for_sqlite(df):
@@ -83,7 +87,7 @@ def sanitize_for_sqlite(df):
                 df_clean[col] = pd.to_numeric(df_clean[col])
             except Exception:
                 # Cast all other mixed object items safely to text strings
-                df_clean[col] = df_clean[col].apply(lambda x: "" if pd.isna(x) else str(x))
+                df_clean[col] = df_clean[col].astype(str)
                 
     return df_clean
 
@@ -172,37 +176,38 @@ def get_database_stats():
         return stats
         
     conn = get_connection()
-    cursor = conn.cursor()
-    
     try:
-        cursor.execute("SELECT COUNT(*) FROM orders")
-        stats["total_orders"] = cursor.fetchone()[0]
-    except Exception:
-        pass
+        cursor = conn.cursor()
         
-    try:
-        cursor.execute("SELECT COUNT(*) FROM tickets")
-        stats["total_tickets"] = cursor.fetchone()[0]
-    except Exception:
-        pass
-        
-    try:
-        cursor.execute("SELECT value FROM config WHERE setting = 'orders_last_updated'")
-        row = cursor.fetchone()
-        if row:
-            stats["orders_last_updated"] = row[0]
-    except Exception:
-        pass
-        
-    try:
-        cursor.execute("SELECT value FROM config WHERE setting = 'tickets_last_updated'")
-        row = cursor.fetchone()
-        if row:
-            stats["tickets_last_updated"] = row[0]
-    except Exception:
-        pass
-        
-    conn.close()
+        try:
+            cursor.execute("SELECT COUNT(*) FROM orders")
+            stats["total_orders"] = cursor.fetchone()[0]
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("SELECT COUNT(*) FROM tickets")
+            stats["total_tickets"] = cursor.fetchone()[0]
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("SELECT value FROM config WHERE setting = 'orders_last_updated'")
+            row = cursor.fetchone()
+            if row:
+                stats["orders_last_updated"] = row[0]
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("SELECT value FROM config WHERE setting = 'tickets_last_updated'")
+            row = cursor.fetchone()
+            if row:
+                stats["tickets_last_updated"] = row[0]
+        except Exception:
+            pass
+    finally:
+        conn.close()
     return stats
 
 
@@ -213,16 +218,16 @@ def auto_migrate_google_sheets():
     """
     if os.path.exists(DB_PATH):
         conn = get_connection()
-        cursor = conn.cursor()
         try:
+            cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM orders")
             count = cursor.fetchone()[0]
             if count > 0:
-                conn.close()
                 return  # Database already has data, skip migration
         except Exception:
             pass
-        conn.close()
+        finally:
+            conn.close()
         
     init_db()
     
