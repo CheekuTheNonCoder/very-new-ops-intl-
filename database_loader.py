@@ -1,6 +1,7 @@
 """
 database_loader.py — Production-grade SQLite Database Sync Module (v5.0)
 Replaces Google Sheets with operations.db local SQLite storage layer.
+Fixed: Added robust dataframe sanitization helper to guarantee successful ingestion.
 """
 import os
 import sqlite3
@@ -57,10 +58,42 @@ def init_db():
     conn.close()
 
 
+def sanitize_dataframe_for_sqlite(df):
+    """
+    Sanitizes all columns of a DataFrame to ensure they are 100% compatible with SQLite.
+    Converts category, tz-aware datetimes, and complex object columns cleanly to standard types.
+    """
+    df_clean = df.copy()
+    for col in df_clean.columns:
+        # Convert categoricals cleanly to string
+        if isinstance(df_clean[col].dtype, pd.CategoricalDtype):
+            df_clean[col] = df_clean[col].astype(str)
+            continue
+            
+        # Convert datetimes to ISO formatted strings
+        if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
+            df_clean[col] = df_clean[col].dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
+            continue
+            
+        # Standardize object/mixed columns safely to text strings or clean floats
+        if pd.api.types.is_object_dtype(df_clean[col]):
+            try:
+                # Try parsing numeric entries (like numeric Order IDs or counts)
+                df_clean[col] = pd.to_numeric(df_clean[col])
+            except Exception:
+                # Cast all other mixed object items safely to text strings
+                df_clean[col] = df_clean[col].apply(lambda x: "" if pd.isna(x) else str(x))
+                
+    return df_clean
+
+
 def save_orders(df):
     """Saves raw order records directly to SQLite and builds query performance indexes."""
     conn = get_connection()
-    df.to_sql("orders", conn, if_exists="replace", index=False)
+    
+    # Sanitize dataframe first to secure 100% ingestion success
+    df_clean = sanitize_dataframe_for_sqlite(df)
+    df_clean.to_sql("orders", conn, if_exists="replace", index=False)
     
     cursor = conn.cursor()
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_id ON orders (order_id)")
@@ -77,7 +110,10 @@ def save_orders(df):
 def save_tickets(df):
     """Saves tickets DataFrame directly to SQLite and applies database indexes."""
     conn = get_connection()
-    df.to_sql("tickets", conn, if_exists="replace", index=False)
+    
+    # Sanitize dataframe first to secure 100% ingestion success
+    df_clean = sanitize_dataframe_for_sqlite(df)
+    df_clean.to_sql("tickets", conn, if_exists="replace", index=False)
     
     cursor = conn.cursor()
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_order_id ON tickets (order_id)")
