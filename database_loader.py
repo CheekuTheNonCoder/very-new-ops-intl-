@@ -1,7 +1,7 @@
 """
 database_loader.py — Production-grade SQLite Database Sync Module (v5.0)
 Replaces Google Sheets with operations.db local SQLite storage layer.
-Fixed: Added robust dataframe sanitization helper to guarantee successful ingestion.
+Fixed: Implemented strict sanitization for Pandas Period/Date types to secure successful SQLite writes.
 """
 import os
 import sqlite3
@@ -17,7 +17,8 @@ SPREADSHEET_ID = "1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg"
 
 def get_connection():
     """Establishes and returns a connection to the local SQLite database."""
-    return sqlite3.connect(DB_PATH)
+    # Added 30 seconds busy timeout to prevent concurrent database lock blocks
+    return sqlite3.connect(DB_PATH, timeout=30.0)
 
 
 def init_db():
@@ -58,10 +59,10 @@ def init_db():
     conn.close()
 
 
-def sanitize_dataframe_for_sqlite(df):
+def sanitize_for_sqlite(df):
     """
     Sanitizes all columns of a DataFrame to ensure they are 100% compatible with SQLite.
-    Converts category, tz-aware datetimes, and complex object columns cleanly to standard types.
+    Converts category, Period, tz-aware datetimes, and complex object columns cleanly to standard string text.
     """
     df_clean = df.copy()
     for col in df_clean.columns:
@@ -70,7 +71,7 @@ def sanitize_dataframe_for_sqlite(df):
             df_clean[col] = df_clean[col].astype(str)
             continue
             
-        # Convert datetimes to ISO formatted strings
+        # Convert standard datetimes to ISO formatted strings
         if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
             df_clean[col] = df_clean[col].dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
             continue
@@ -89,42 +90,46 @@ def sanitize_dataframe_for_sqlite(df):
 
 def save_orders(df):
     """Saves raw order records directly to SQLite and builds query performance indexes."""
+    init_db()
     conn = get_connection()
-    
-    # Sanitize dataframe first to secure 100% ingestion success
-    df_clean = sanitize_dataframe_for_sqlite(df)
-    df_clean.to_sql("orders", conn, if_exists="replace", index=False)
-    
-    cursor = conn.cursor()
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_id ON orders (order_id)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_brand ON orders (brand)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (order_status)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_del_month ON orders (\"Delivery Month\")")
-    
-    cursor.execute("INSERT OR REPLACE INTO config (setting, value) VALUES ('orders_last_updated', ?)", 
-                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
-    conn.commit()
-    conn.close()
+    try:
+        # Sanitize dataframe first to secure 100% ingestion success in SQLite
+        df_clean = sanitize_for_sqlite(df)
+        df_clean.to_sql("orders", conn, if_exists="replace", index=False)
+        
+        cursor = conn.cursor()
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_id ON orders (order_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_brand ON orders (brand)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (order_status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_del_month ON orders (\"Delivery Month\")")
+        
+        cursor.execute("INSERT OR REPLACE INTO config (setting, value) VALUES ('orders_last_updated', ?)", 
+                       (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def save_tickets(df):
     """Saves tickets DataFrame directly to SQLite and applies database indexes."""
+    init_db()
     conn = get_connection()
-    
-    # Sanitize dataframe first to secure 100% ingestion success
-    df_clean = sanitize_dataframe_for_sqlite(df)
-    df_clean.to_sql("tickets", conn, if_exists="replace", index=False)
-    
-    cursor = conn.cursor()
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_order_id ON tickets (order_id)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_brand ON tickets (brand)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_cat ON tickets (ticket_category)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_tick_month ON tickets (\"Ticket Month\")")
-    
-    cursor.execute("INSERT OR REPLACE INTO config (setting, value) VALUES ('tickets_last_updated', ?)", 
-                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
-    conn.commit()
-    conn.close()
+    try:
+        # Sanitize dataframe first to secure 100% ingestion success in SQLite
+        df_clean = sanitize_for_sqlite(df)
+        df_clean.to_sql("tickets", conn, if_exists="replace", index=False)
+        
+        cursor = conn.cursor()
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_order_id ON tickets (order_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_brand ON tickets (brand)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_cat ON tickets (ticket_category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_tick_month ON tickets (\"Ticket Month\")")
+        
+        cursor.execute("INSERT OR REPLACE INTO config (setting, value) VALUES ('tickets_last_updated', ?)", 
+                       (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def load_orders():
@@ -136,7 +141,8 @@ def load_orders():
         df = pd.read_sql_query("SELECT * FROM orders", conn)
     except Exception:
         df = pd.DataFrame()
-    conn.close()
+    finally:
+        conn.close()
     return df
 
 
@@ -149,7 +155,8 @@ def load_tickets():
         df = pd.read_sql_query("SELECT * FROM tickets", conn)
     except Exception:
         df = pd.DataFrame()
-    conn.close()
+    finally:
+        conn.close()
     return df
 
 
@@ -223,8 +230,8 @@ def auto_migrate_google_sheets():
     try:
         from engine_loader import load_delivered, load_tickets
         
-        del_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Orders"
-        tick_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Tickets"
+        del_url = f"https://docs.google.com/spreadsheets/d/{1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg}/gviz/tq?tqx=out:csv&sheet=Orders"
+        tick_url = f"https://docs.google.com/spreadsheets/d/{1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg}/gviz/tq?tqx=out:csv&sheet=Tickets"
         
         headers = {"User-Agent": "Mozilla/5.0 (OpsIntelPlatform v5.0)"}
         
