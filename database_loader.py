@@ -20,7 +20,7 @@ def get_connection():
 
 
 def init_db():
-    """Creates the configuration and registry tables if they do not exist."""
+    """Creates the operational schema tables if they do not exist."""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -183,7 +183,7 @@ def auto_migrate_google_sheets():
         
     init_db()
     
-    st.info("🔄 Running first-time automatic migration from Google Sheets to SQLite...")
+    st.info("Running first-time automatic migration from Google Sheets to SQLite...")
     try:
         from engine_loader import load_delivered, load_tickets
         
@@ -207,6 +207,6 @@ def auto_migrate_google_sheets():
         # Save records directly to SQLite
         save_orders(orders_df)
         save_tickets(tickets_df)
-        st.success("✅ Automatic Google Sheets migration successful! Database operations.db is seeded.")
+        st.success("✅ Automatic Google Sheets migration successful! Database seeded locally.")
     except Exception as e:
-        st.warning(f"⚠️ Google Sheets migration bypassed (sheet may be private or inaccessible): {e}")
+        st.warning(f"⚠️ Google Sheets migration bypassed: {e}")
