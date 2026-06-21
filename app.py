@@ -1,7 +1,7 @@
 """
 app.py — Enterprise Operations Intelligence Platform (v4.0)
 Calculates overall support metrics and maps custom single-period dropdown filters.
-Integrated: Migrated to SQLite database and added password-protected Admin Control Panel.
+Fixed: Moved database loading and statistics calculation to the top to resolve NameError.
 """
 import streamlit as st
 import pandas as pd
@@ -26,6 +26,15 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── 1. INITIALIZE DATABASE & RETRIEVE METRIC STATS ──
+# Run automated first-time migration and fetch local SQLite records on startup
+auto_migrate_google_sheets()
+db_stats = get_database_stats()
+del_df_raw = load_orders()
+tick_df_raw = load_tickets()
+
+
+# ── 2. SIDEBAR STYLING & INTERFACE ──
 st.markdown("""
 <style>
 html, body, [data-testid="stAppViewContainer"] { background: #0D1117 !important; }
@@ -68,13 +77,12 @@ def handle_ai_error(e):
         st.error(f"⚠️ **AI Execution Error:** {err_msg}")
 
 
-# Dynamic version key strictly forces Streamlit to invalidate its memory cache and reload raw data
 @st.cache_data(show_spinner=False)
 def run_pipeline(del_df_raw, tick_df_raw, app_version="v4.3"):
     return process_pipeline(del_df_raw, tick_df_raw)
 
 
-# ── SIDEBAR INTERFACE ──
+# ── SIDEBAR CONTROLS ──
 with st.sidebar:
     st.markdown("## 📦 Ops Intel Console")
     view_mode = st.radio("Select View Mode", ["📈 Public Dashboard", "🔐 Admin Control Panel"], index=0)
@@ -114,16 +122,6 @@ with st.sidebar:
     st.caption("v4.0 • SQLite Edition")
 
 
-# ── RUN AUTOMATED FIRST-TIME MIGRATION ──
-auto_migrate_google_sheets()
-
-# Load baseline datasets directly from local SQLite
-del_df_raw = load_orders()
-tick_df_raw = load_tickets()
-
-db_stats = get_database_stats()
-
-
 # ── COLD START DATA VALIDATOR ──
 if del_df_raw.empty or tick_df_raw.empty:
     if view_mode == "📈 Public Dashboard":
@@ -158,6 +156,7 @@ if view_mode == "🔐 Admin Control Panel":
         if orders_file and st.button("🚀 Process & Import Orders", use_container_width=True):
             try:
                 with st.spinner("Processing Orders data and updating SQLite..."):
+                    # Process files through identical loader pipelines
                     if orders_file.name.endswith(".csv"):
                         raw_df = pd.read_csv(orders_file)
                     else:
@@ -236,8 +235,6 @@ redist_sum = D["redist_summary"]
 orig = D.get("original_ticket_count", 0)
 final_c = D.get("final_ticket_count", 0)
 val_ok = D.get("validation_ok", False)
-
-available_months = sorted(del_df["Delivery Month Sort"].dropna().unique())
 
 
 # ── TIME INTELLIGENCE & FILTER INTERFACE ──
