@@ -1,7 +1,7 @@
 """
 database_loader.py — Production-grade SQLite Database Sync Module (v5.0)
 Replaces Google Sheets with operations.db local SQLite storage layer.
-Fixed: Implemented strict sanitization for Pandas Period/Date types to secure successful SQLite writes.
+Fixed: Replaced f-strings with raw URL literals to prevent syntax errors during sheet ID parsing.
 """
 import os
 import sqlite3
@@ -230,8 +230,9 @@ def auto_migrate_google_sheets():
     try:
         from engine_loader import load_delivered, load_tickets
         
-        del_url = f"https://docs.google.com/spreadsheets/d/{1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg}/gviz/tq?tqx=out:csv&sheet=Orders"
-        tick_url = f"https://docs.google.com/spreadsheets/d/{1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg}/gviz/tq?tqx=out:csv&sheet=Tickets"
+        # Safe raw string URLs with no dynamic f-string braces to avoid compilation syntax errors
+        del_url = "https://docs.google.com/spreadsheets/d/1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg/gviz/tq?tqx=out:csv&sheet=Orders"
+        tick_url = "https://docs.google.com/spreadsheets/d/1h1464iaglel2B-oQbY9kuNkL7_yZYHKqEACxIDg_rxg/gviz/tq?tqx=out:csv&sheet=Tickets"
         
         headers = {"User-Agent": "Mozilla/5.0 (OpsIntelPlatform v5.0)"}
         
