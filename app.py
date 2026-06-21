@@ -1,7 +1,7 @@
 """
 app.py — Enterprise Operations Intelligence Platform (v4.0)
 Calculates overall support metrics and maps custom single-period dropdown filters.
-Fixed: Re-structured sidebar block to resolve NameError view_mode dependencies.
+Fixed: Rectified syntax error on Tab 1 brand sort column allocation block.
 """
 import streamlit as st
 import pandas as pd
@@ -34,7 +34,7 @@ del_df_raw = load_orders()
 tick_df_raw = load_tickets()
 
 
-# ── 2. SIDEBAR INTERFACE ──
+# ── 2. SIDEBAR STYLING & INTERFACE ──
 with st.sidebar:
     st.markdown("## 📦 Ops Intel Console")
     # Globally defined view_mode to prevent NameError conditionals
@@ -233,6 +233,7 @@ orig = D.get("original_ticket_count", 0)
 final_c = D.get("final_ticket_count", 0)
 val_ok = D.get("validation_ok", False)
 
+# Dynamic available months parsing to prevent NameError on historical comparison tab
 available_months = sorted(del_df["Delivery Month Sort"].dropna().unique())
 
 
@@ -508,11 +509,11 @@ with tab1:
     b_fa, b_fb, b_fc = st.columns(3)
     with b_fa:
         b_imp_f = st.multiselect("Impact Level Filter", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH", "MEDIUM", "LOW"], key="b_imp_tab")
-    with b_sort_choice := st.selectbox("Sort Matrix By", [
+    with b_fb:
+        b_sort_choice = st.selectbox("Sort Matrix By", [
             "Highest Tickets", "Lowest Tickets", "Highest Esc %", "Lowest Esc %",
             "Highest Orders", "Lowest Orders", "A → Z"
-        ], key="b_sort_tab") is None:
-        pass
+        ], key="b_sort_tab")
     with b_fc:
         b_min_del = st.number_input("Minimum Orders Threshold", value=0, step=50, key="b_min_tab")
         
@@ -741,7 +742,7 @@ with tab8:
 
         top10b = brand_sum.head(10)[["brand", "delivered", "tickets", "esc_pct"]].to_dict("records") if not brand_sum.empty else []
         top10p = prod_sum.head(10)[["brand", "canonical_product", "delivered", "tickets", "esc_pct"]].to_dict("records") if not prod_sum.empty else []
-        top_i  = f_tick_universe.groupby("subcat_final").size().reset_index(name="count").sort_values("count", ascending=False).head(8).to_dict("records") if not f_tick_universe.empty else []
+        top_i = f_tick_universe.groupby("subcat_final").size().reset_index(name="count").sort_values("count", ascending=False).head(8).to_dict("records") if not f_tick_universe.empty else []
 
         ai1, ai2 = st.columns(2)
         with ai1:
