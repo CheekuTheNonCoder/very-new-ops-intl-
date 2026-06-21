@@ -1,7 +1,7 @@
 """
 engine_loader.py — Time Intelligence & Dynamic Loader (v4.0)
 Calculates hierarchies, handles cohort joins, and tracks date intervals dynamically.
-Fixed: Implemented smart test-parsing column detectors to guarantee 100% date resolution.
+Fixed: Cast Date and Period objects strictly to text strings to prevent SQLite serialization errors.
 """
 import io
 import pandas as pd
@@ -151,13 +151,16 @@ def parse_date_hierarchy(df, col_name, prefix):
     dt_series = safe_parse_datetime(df[col_name])
     dt_series = dt_series.apply(lambda x: pd.NaT if pd.notna(x) and x.year < 1975 else x)
     
-    df[f"{prefix} Date"] = dt_series.dt.date
+    # Safe SQLite serialization: Cast Dates and Periods strictly to string text types
+    df[f"{prefix} Date"] = dt_series.dt.date.astype(str)
     df[f"{prefix} Date"] = df[f"{prefix} Date"].fillna("Unknown Date")
     
     df[f"{prefix} Year"] = dt_series.apply(lambda x: int(x.year) if pd.notna(x) else "Unknown Year")
     df[f"{prefix} Quarter"] = dt_series.apply(lambda x: f"{x.year}-Q{x.quarter}" if pd.notna(x) else "Unknown Quarter")
     df[f"{prefix} Month"] = dt_series.apply(lambda x: x.strftime("%B %Y") if pd.notna(x) else "Unknown Month")
-    df[f"{prefix} Month Sort"] = dt_series.dt.to_period("M")
+    
+    # Convert Period strictly to text string so SQLite can safely ingest it
+    df[f"{prefix} Month Sort"] = dt_series.dt.to_period("M").astype(str)
     
     df[f"{prefix} Week"] = dt_series.apply(
         lambda d: f"{d.strftime('%b %Y')} Wk{min((d.day - 1) // 7 + 1, 4)}" if pd.notna(d) else "Unknown Week"
