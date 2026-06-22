@@ -1,6 +1,7 @@
 """
 engine_loader.py — Time Intelligence & Dynamic Loader (v5.0)
 Loads raw datasets from SQLite and applies dynamic date parsing and hierarchies.
+Fixed: Renamed raw tickets loader to load_tickets_raw to resolve app.py ImportError.
 """
 import io
 import pandas as pd
@@ -36,6 +37,7 @@ def _detect_date_col(df):
     Intelligently scans all columns in the DataFrame to locate the most likely date column.
     Checks for keyword matches, and fallbacks to parsing columns until one succeeds with minimal NaT.
     """
+    # Enforces exact order_delivered_at, order_created_at and createdAtDate mappings
     date_keywords = ["order_delivered_at", "order_created_at", "delivered_at", "createdatdate", "created_at", "date", "time", "created", "timestamp", "day", "delivered"]
     
     # Keyword search
@@ -307,7 +309,7 @@ def process_pipeline(del_input, tick_input, rng_seed=42):
     # ── Step 1: Loading ──
     update(5, "Loading active operational datasets...")
     del_raw = load_delivered(del_input)
-    tick_raw = load_tickets_raw(del_input) if isinstance(tick_input, str) else load_tickets_raw(tick_input)
+    tick_raw = load_tickets_raw(tick_input)
     ORIGINAL_TICKET_COUNT = len(tick_raw)
 
     # ── Step 2: Normalize Brands ──
