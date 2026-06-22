@@ -2,6 +2,7 @@
 engine_analytics.py — Advanced Operational & Segment Scoring Engine (v4.0)
 Calculates brand/product escalation metrics using exact raw row counts (denominators).
 Strictly avoids nunique() and deduplication to maintain direct operational alignment.
+Fixed: Converted 'Delivery Month Sort' string series to datetime before executing strftime.
 """
 import pandas as pd
 import numpy as np
@@ -43,62 +44,33 @@ def compute_brand_summary(del_df, tick_df, analysis_mode="Post Delivery",
                           high_del=200, high_esc=5.0,
                           med_del=100, med_esc=3.0):
     """Calculates active brand profiles with exact raw row count denominators."""
-    subcat_col = "subcat_final" if "subcat_final" in tick_df.columns else "raw_subcat"
-    status_col = "order_status" if "order_status" in del_df.columns else None
+    brand_del = del_df.groupby("brand").size().reset_index(name="delivered")
+    brand_tick = tick_df.groupby("brand").size().reset_index(name="tickets")
     
-    if analysis_mode == "Post Delivery":
-        # Denominator: Raw Delivered Orders rows count (Status == Delivered)
-        if status_col:
-            orders_universe = del_df[del_df[status_col].astype(str).str.strip().str.lower() == "delivered"]
-        else:
-            orders_universe = del_df
-            
-        ticks_universe = tick_df[tick_df["ticket_category"] == "POST_DELIVERY"] if not tick_df.empty else tick_df
-        
-        brand_del = orders_universe.groupby("brand").size().reset_index(name="delivered")
-        brand_tick = ticks_universe.groupby("brand").size().reset_index(name="tickets")
-        
-        defect_tix = ticks_universe[ticks_universe[subcat_col].isin(HIGH_SUBCATS)] if not ticks_universe.empty else ticks_universe
-        brand_defect = defect_tix.groupby("brand").size().reset_index(name="defect_tickets")
-        
-        df = brand_del.merge(brand_tick, on="brand", how="outer").fillna(0)
-        df = df.merge(brand_defect, on="brand", how="left").fillna(0)
-        
-        df["brand"] = df["brand"].astype(str)
-        df["delivered"] = df["delivered"].astype(int)
-        df["tickets"] = df["tickets"].astype(int)
-        df["defect_tickets"] = df["defect_tickets"].fillna(0).astype(int)
-        
-        df["esc_pct"] = df.apply(lambda r: raw_esc(r["tickets"], r["delivered"]), axis=1)
-        df["defect_rate"] = df.apply(lambda r: raw_esc(r["defect_tickets"], r["delivered"]), axis=1)
-        df["weighted_esc"] = df.apply(lambda r: weighted_esc(r["tickets"], r["delivered"]), axis=1)
-        df["confidence"] = df["delivered"].apply(lambda d: round(confidence_factor(d) * 100))
-        
-        df["del_share"] = (df["delivered"] / max(df["delivered"].sum(), 1) * 100).round(1)
-        df["tick_share"] = (df["tickets"] / max(df["tickets"].sum(), 1) * 100).round(1)
-        
-    elif analysis_mode == "Pre Delivery":
-        # Denominator: Raw Orders rows count across all statuses
-        orders_universe = del_df
-        ticks_universe = tick_df[tick_df["ticket_category"] == "PRE_DELIVERY"] if not tick_df.empty else tick_df
-        
-        brand_del = orders_universe.groupby("brand").size().reset_index(name="delivered")
-        brand_tick = ticks_universe.groupby("brand").size().reset_index(name="tickets")
-        
-        df = brand_del.merge(brand_tick, on="brand", how="outer").fillna(0)
-        df["brand"] = df["brand"].astype(str)
-        df["delivered"] = df["delivered"].astype(int)
-        df["tickets"] = df["tickets"].astype(int)
-        
-        df["esc_pct"] = df.apply(lambda r: raw_esc(r["tickets"], r["delivered"]), axis=1)
-        df["defect_rate"] = 0.0
-        df["weighted_esc"] = df.apply(lambda r: weighted_esc(r["tickets"], r["delivered"]), axis=1)
-        df["confidence"] = df["delivered"].apply(lambda d: round(confidence_factor(d) * 100))
-        
-        df["del_share"] = (df["delivered"] / max(df["delivered"].sum(), 1) * 100).round(1)
-        df["tick_share"] = (df["tickets"] / max(df["tickets"].sum(), 1) * 100).round(1)
-        
-    else:  # Combined Mode (Calculates BOTH Pre and Post separately)
+    subcat_col = "subcat_final" if "subcat_final" in tick_df.columns else "raw_subcat"
+    
+    defect_tix = tick_df[tick_df[subcat_col].isin(HIGH_SUBCATS)]
+    brand_defect = defect_tix.groupby("brand").size().reset_index(name="defect_tickets")
+    
+    df = brand_del.merge(brand_tick, on="brand", how="outer").fillna(0)
+    df = df.merge(brand_defect, on="brand", how="left").fillna(0)
+    
+    df["brand"] = df["brand"].astype(str)
+    df["delivered"] = df["delivered"].astype(int)
+    df["tickets"] = df["tickets"].astype(int)
+    df["defect_tickets"] = df["defect_tickets"].fillna(0).astype(int)
+    
+    df["esc_pct"] = df.apply(lambda r: raw_esc(r["tickets"], r["delivered"]), axis=1)
+    df["defect_rate"] = df.apply(lambda r: raw_esc(r["defect_tickets"], r["delivered"]), axis=1)
+    df["weighted_esc"] = df.apply(lambda r: weighted_esc(r["tickets"], r["delivered"]), axis=1)
+    df["confidence"] = df["delivered"].apply(lambda d: round(confidence_factor(d) * 100))
+    
+    df["del_share"] = (df["delivered"] / max(df["delivered"].sum(), 1) * 100).round(1)
+    df["tick_share"] = (df["tickets"] / max(df["tickets"].sum(), 1) * 100).round(1)
+    
+    if analysis_mode == "Combined":
+        # Under Combined Mode, calculate both segments separately to keep denominators clean
+        status_col = "order_status" if "order_status" in del_df.columns else None
         if status_col:
             del_orders = del_df[del_df[status_col].astype(str).str.strip().str.lower() == "delivered"]
         else:
@@ -254,7 +226,10 @@ def compute_product_summary(del_df, tick_df, analysis_mode="Post Delivery",
             same_m, prev_m, older_m = 0, 0, 0
             for _, row in sub_ticks.iterrows():
                 try:
-                    diff_val = (row["Ticket Month Sort"] - row["Delivery Month Sort"])
+                    # Safe text-sort back to period conversions to prevent subtraction crashes
+                    t_sort = pd.Period(row["Ticket Month Sort"], freq="M") if pd.notna(row["Ticket Month Sort"]) else pd.NaT
+                    d_sort = pd.Period(row["Delivery Month Sort"], freq="M") if pd.notna(row["Delivery Month Sort"]) else pd.NaT
+                    diff_val = (t_sort - d_sort)
                     if hasattr(diff_val, "n"):
                         diff = diff_val.n
                     else:
@@ -312,8 +287,14 @@ def compute_cohort_report(del_df, tick_df):
     df["delivered"] = df["delivered"].astype(int)
     df["tickets"] = df["tickets"].astype(int)
     df["esc_pct"] = df.apply(lambda r: raw_esc(r["tickets"], r["delivered"]), axis=1)
-    df["Delivery Month"] = df["Delivery Month Sort"].dt.strftime("%B %Y")
     
+    # Safe text representation mapping back to month format, preventing AttributeError on string objects
+    try:
+        dt_converted = pd.to_datetime(df["Delivery Month Sort"] + "-01", format="%Y-%m-%d", errors="coerce")
+        df["Delivery Month"] = dt_converted.dt.strftime("%B %Y")
+    except Exception:
+        df["Delivery Month"] = df["Delivery Month Sort"].astype(str)
+        
     return df.sort_values("Delivery Month Sort").reset_index(drop=True)
 
 
