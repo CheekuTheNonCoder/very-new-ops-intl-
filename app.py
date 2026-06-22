@@ -1,7 +1,7 @@
 """
 app.py — Enterprise Operations Intelligence Platform (v4.0)
 Calculates overall support metrics and maps custom single-period dropdown filters.
-Fixed: Rectified syntax error on Tab 1 brand sort column allocation block.
+Fixed: Re-structured sidebar block to resolve NameError view_mode dependencies.
 """
 import streamlit as st
 import pandas as pd
@@ -10,8 +10,8 @@ from datetime import datetime
 import json
 import os
 
-from database_loader import load_orders, load_tickets, save_orders, save_tickets, get_database_stats, auto_migrate_google_sheets
-from engine_loader import process_pipeline, generate_dynamic_periods, load_delivered, load_tickets as load_raw_tickets
+from database_loader import load_orders, load_tickets, save_orders, save_tickets, get_database_stats, init_db
+from engine_loader import process_pipeline, generate_dynamic_periods, load_delivered, load_tickets_raw
 from engine_analytics import (
     compute_brand_summary, compute_product_summary,
     compute_cohort_report, compute_weekly_trends, top_kpis, raw_esc,
@@ -27,14 +27,14 @@ st.set_page_config(
 )
 
 # ── 1. INITIALIZE DATABASE & RETRIEVE METRIC STATS ──
-# Run automated first-time migration and fetch local SQLite records on startup
-auto_migrate_google_sheets()
+# Run database schema check first thing on startup
+init_db()
 db_stats = get_database_stats()
 del_df_raw = load_orders()
 tick_df_raw = load_tickets()
 
 
-# ── 2. SIDEBAR STYLING & INTERFACE ──
+# ── 2. SIDEBAR INTERFACE ──
 with st.sidebar:
     st.markdown("## 📦 Ops Intel Console")
     # Globally defined view_mode to prevent NameError conditionals
@@ -72,7 +72,7 @@ with st.sidebar:
         st.caption(f"Tickets Updated: {db_stats['tickets_last_updated']}")
 
     st.divider()
-    st.caption("v4.0 • SQLite Edition")
+    st.caption("v5.0 • SQLite Edition")
 
 
 st.markdown("""
@@ -178,7 +178,7 @@ if view_mode == "🔐 Admin Control Panel":
                     else:
                         raw_df = pd.read_excel(tickets_file)
                         
-                    tickets_df = load_raw_tickets(raw_df)
+                    tickets_df = load_tickets_raw(raw_df)
                     save_tickets(tickets_df)
                 st.success(f"✅ Imported {len(tickets_df):,} Ticket rows successfully! SQLite database updated.")
                 st.cache_data.clear()
@@ -259,7 +259,7 @@ else:
         # Fallback to Month matching (e.g. "May 2026")
         f_del = del_df[del_df["Delivery Month"] == selected_period].copy()
         # Tickets strictly filtered by Ticket Creation Month (Ticket Month) for 100% operational matching
-        f_tick = tick_df[tick_df["Ticket Month"] == selected_period].copy()
+        f_tick = tick_df[tick_df["Delivery Month"] == selected_period].copy()
 
 
 # ── DATE DIAGNOSTICS FOR QUALITY ASSURANCE ──
@@ -742,7 +742,7 @@ with tab8:
 
         top10b = brand_sum.head(10)[["brand", "delivered", "tickets", "esc_pct"]].to_dict("records") if not brand_sum.empty else []
         top10p = prod_sum.head(10)[["brand", "canonical_product", "delivered", "tickets", "esc_pct"]].to_dict("records") if not prod_sum.empty else []
-        top_i = f_tick_universe.groupby("subcat_final").size().reset_index(name="count").sort_values("count", ascending=False).head(8).to_dict("records") if not f_tick_universe.empty else []
+        top_i  = f_tick_universe.groupby("subcat_final").size().reset_index(name="count").sort_values("count", ascending=False).head(8).to_dict("records") if not f_tick_universe.empty else []
 
         ai1, ai2 = st.columns(2)
         with ai1:
