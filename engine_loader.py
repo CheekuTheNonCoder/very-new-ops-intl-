@@ -16,11 +16,13 @@ from engine_redistribute import (
 import database_loader
 
 
-def _detect_col(df, keywords, fallback=0):
-    """Detects column names safely by matching keywords with fallback indexes."""
+def _detect_col(df, keywords, fallback=0, exclude=None):
+    """Detects column names safely by matching keywords with fallback indexes, allowing term exclusion."""
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
     for kw in keywords:
         for col_l, col in cols_lower.items():
+            if exclude and any(ex.lower() in col_l for ex in exclude):
+                continue
             if kw.lower() in col_l:
                 return col
                 
@@ -264,10 +266,18 @@ def load_tickets_raw(df_or_bytes):
     prod_col = _detect_product_col(df)
     brand_col = _detect_brand_col(df)
     
-    # Robust multi-pass search mapping to prevent column index shifts and database-loaded collision mismatches
-    cat_col = next((c for c in df.columns if c == "Ticket Category"), None) or _detect_col(df, ["Ticket Category", "category", "raw_category", "ticket_category"], 4)
+    # Strict exclusion-aware mapping prevents column collisions between Category and Sub-Category
+    cat_col = next((c for c in df.columns if c == "Ticket Category"), None) or _detect_col(df, ["Ticket Category", "category", "raw_category", "ticket_category"], 4, exclude=["sub", "subcategory"])
     subcat_col = next((c for c in df.columns if c == "Ticket Sub-Category"), None) or _detect_col(df, ["Ticket Sub-Category", "sub-category", "sub category", "sub_category", "subcategory", "subcat", "raw_subcat"], 5)
     
+    # Structural assertion to identify mismatched inputs instantly
+    if cat_col == subcat_col:
+        raise ValueError(
+            f"Column Detection Collision: Both 'Ticket Category' and 'Ticket Sub-Category' "
+            f"resolved to the same column: '{cat_col}'. Please verify that your uploaded tickets sheet "
+            f"contains separate columns for Category and Sub-Category. Found columns: {list(df.columns)}"
+        )
+        
     out = pd.DataFrame({
         "order_id": df[order_col].astype(str).str.strip(),
         "raw_date": df[date_col],
