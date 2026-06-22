@@ -60,15 +60,8 @@ with st.sidebar:
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 2rem; margin-top: 1rem;">
         <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 0px 8px rgba(59, 130, 246, 0.6));">
             <path d="M23 2C32 2 39 5 39 12V24C39 31.5 32.5 38 23 44C13.5 38 7 31.5 7 24V12C7 5 14 2 23 2Z" fill="#0F172A" stroke="#3B82F6" stroke-width="2"/>
-            <defs>
-                <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stop-color="rgba(59, 130, 246, 0.3)" />
-                    <stop zip="100%" stop-color="transparent" />
-                </linear-gradient>
-            </ensure>
-            <path d="M23 2L3 12v12c0 10 12 18 20 22c8-4 20-12 20-22v-4" fill="url(#blue-gradient)" style="opacity:0.25;"/>
             <text x="50%" y="58%" dominant-baseline="middle" text-anchor="middle" font-family="'Inter', sans-serif" font-weight="900" font-size="11" fill="#FFFFFF">OPX</text>
-        </vsg>
+        </svg>
         <div>
             <h2 style="margin:0; font-size:18px; font-weight:700; color:#FFFFFF; letter-spacing:0.05em; line-height:1.2;">OPX</h2>
             <p style="margin:0; font-size:9px; color:#64748B; font-weight:600; text-transform:uppercase; letter-spacing:0.08em;">Enterprise Ops Analytics</p>
@@ -131,17 +124,21 @@ html, body, [data-testid="stAppViewContainer"] {
     max-width: 100% !important;
 }
 
-/* Sidebar Custom Theme */
-[data-testid="stSidebar"] {
+/* Sidebar Custom Theme - Active only when expanded */
+section[data-testid="stSidebar"][aria-expanded="true"] {
     background: #0F172A !important;
     border-right: 1px solid #1E293B !important;
     min-width: 280px !important;
+    max-width: 280px !important;
 }
-[data-testid="stSidebar"] * {
+/* Sidebar Custom Theme - Fully responsive collapse to 0px when hidden */
+section[data-testid="stSidebar"][aria-expanded="false"] {
+    min-width: 0px !important;
+    max-width: 0px !important;
+    border-right: none !important;
+}
+section[data-testid="stSidebar"] * {
     color: #94A3B8 !important;
-}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    color: #F8FAFC !important;
 }
 
 /* Glassmorphism Cards */
@@ -271,402 +268,6 @@ html, body, [data-testid="stAppViewContainer"] {
 
 
 def kpi(label, value, sub="", color="blue"):
-    st.markdown(f"""
-        <div class="kpi {color}">
-            <p class="kpi-lbl">{label}</p>
-            <p class="kpi-val">{value}</p>
-            {f'<p class="kpi-sub">{sub}</p>' if sub else ''}
-        </div>
-    """, unsafe_allow_html=True)
-
-
-def handle_ai_error(e):
-    err_msg = str(e)
-    if "getaddrinfo failed" in err_msg or "11001" in err_msg:
-        st.error("🔌 **Connection Issue:** Verify your system has active internet access.")
-    elif "503" in err_msg or "Service Unavailable" in err_msg:
-        st.error("⏳ **Temporary Timeout (503):** The model server is currently busy. Please retry.")
-    elif "401" in err_msg or "Unauthorized" in err_msg:
-        st.error("🔑 **Auth Key Failed (401):** Verify that your Google Gemini API Key is active.")
-    else:
-        st.error(f"⚠️ **AI Execution Error:** {err_msg}")
-
-
-@st.cache_data(show_spinner=False)
-def run_pipeline(del_df_raw, tick_df_raw, app_version="v4.3"):
-    return process_pipeline(del_df_raw, tick_df_raw)
-
-
-# ── COLD START DATA VALIDATOR ──
-if del_df_raw.empty or tick_df_raw.empty:
-    if view_mode == "📈 Public Dashboard":
-        st.markdown("## 📦 OPX")
-        st.caption("Operations Intelligence Platform")
-        st.warning("⚠️ No operational data loaded in SQLite database yet. Please select '🔐 Admin Control Panel' in the sidebar to upload Orders and Tickets files.")
-        st.stop()
-
-
-# ── INGESTION LAYER (ADMIN CONTROL PANEL VIEW) ──
-if view_mode == "🔐 Admin Control Panel":
-    st.markdown("## 🔐 Admin Database Control Panel")
-    st.caption("Import operational Excel spreadsheets to update the primary SQLite database.")
-    
-    admin_password = st.text_input("Enter Admin Access Password", type="password")
-    configured_pwd = st.secrets.get("ADMIN_PASSWORD", "admin123")
-    
-    if admin_password != configured_pwd:
-        if admin_password:
-            st.error("❌ Access denied. Incorrect Admin Password.")
-        st.stop()
-        
-    st.success("🔓 Access Granted. Administrative functions unlocked.")
-    st.divider()
-    
-    # 2-Column import dashboard
-    imp_col1, imp_col2 = st.columns(2)
-    with imp_col1:
-        st.markdown("### 📥 Import Orders")
-        orders_file = st.file_uploader("Upload Delivered Orders Sheet", type=["xlsx", "xls", "csv"], key="orders_up")
-        if orders_file and st.button("🚀 Process & Import Orders", width='stretch'):
-            try:
-                with st.spinner("Processing Orders data and updating SQLite..."):
-                    if orders_file.name.endswith(".csv"):
-                        raw_df = pd.read_csv(orders_file)
-                    else:
-                        raw_df = pd.read_excel(orders_file)
-                        
-                    orders_df = load_delivered(raw_df)
-                    save_orders(orders_df)
-                st.success(f"✅ Imported {len(orders_df):,} Order rows successfully! SQLite database updated.")
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Orders Import Failed: {e}")
-                
-    with imp_col2:
-        st.markdown("### 📥 Import Tickets")
-        tickets_file = st.file_uploader("Upload Tickets Dump Sheet", type=["xlsx", "xls", "csv"], key="tickets_up")
-        if tickets_file and st.button("🚀 Process & Import Tickets", width='stretch'):
-            try:
-                with st.spinner("Processing Tickets data and updating SQLite..."):
-                    if tickets_file.name.endswith(".csv"):
-                        raw_df = pd.read_csv(tickets_file)
-                    else:
-                        raw_df = pd.read_excel(tickets_file)
-                        
-                    tickets_df = load_tickets_raw(raw_df)
-                    save_tickets(tickets_df)
-                st.success(f"✅ Imported {len(tickets_df):,} Ticket rows successfully! SQLite database updated.")
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Tickets Import Failed: {e}")
-                
-    st.divider()
-    st.markdown("### 💾 Database Management")
-    db_m1, db_m2 = st.columns(2)
-    with db_m1:
-        st.markdown("**Backup Database File**")
-        st.caption("Download the entire local operations.db SQLite state directly to backup.")
-        if os.path.exists("operations.db"):
-            with open("operations.db", "rb") as f:
-                st.download_button(
-                    "⬇️ Download Database Backup", 
-                    data=f, 
-                    file_name=f"operations_backup_{datetime.now().strftime('%Y%m%d')}.db",
-                    width='stretch'
-                )
-        else:
-            st.error("No active operations.db file found.")
-            
-    with db_m2:
-        st.markdown("**Reset Database**")
-        st.caption("Danger Zone: Deletes the active local operations.db database to reset.")
-        if st.button("🚨 Purge & Reset Database", width='stretch'):
-            if os.path.exists("operations.db"):
-                os.remove("operations.db")
-                st.success("🔥 Local database deleted! App will reinitialize on page reload.")
-                st.cache_data.clear()
-                st.rerun()
-                
-    st.stop()
-
-
-# ── RUN CALCULATIONS (PUBLIC DASHBOARD VIEW) ──
-# run pipeline natively with SQLite dataframes
-try:
-    D = run_pipeline(del_df_raw, tick_df_raw, app_version="v4.3")
-except Exception as e:
-    st.error(f"❌ Pipeline Execution Error: {e}")
-    st.stop()
-
-del_df = D["del_df"]
-tick_df = D["tick_df"]
-registry = D["registry"]
-redist_sum = D["redist_summary"]
-
-orig = D.get("original_ticket_count", 0)
-final_c = D.get("final_ticket_count", 0)
-val_ok = D.get("validation_ok", False)
-
-# Dynamic available months parsing to prevent NameError on historical comparison tab
-available_months = sorted(del_df["Delivery Month Sort"].dropna().unique())
-
-
-# ── TIME INTELLIGENCE & FILTER INTERFACE ──
-st.markdown("### 📊 Time Intelligence Filter")
-
-# Generate period options strictly from the raw_date of uploaded data (No hardcoding)
-period_options = generate_dynamic_periods(del_df, "raw_date")
-selected_period = st.selectbox("Select Filter Period", period_options)
-
-# Filter both dataframes dynamically based on selection
-if selected_period == "All Data":
-    f_del = del_df.copy()
-    f_tick = tick_df.copy()
-else:
-    try:
-        # Check if selected_period is a precise single date (e.g. "May 14, 2026")
-        parsed_date = pd.to_datetime(selected_period, format="%B %d, %Y")
-        f_del = del_df[pd.to_datetime(del_df["raw_date"], errors="coerce").dt.date == parsed_date.date()].copy()
-        # Tickets strictly filtered by Ticket Creation Date for exact matching
-        f_tick = tick_df[pd.to_datetime(tick_df["raw_date"], errors="coerce").dt.date == parsed_date.date()].copy()
-    except Exception:
-        # Fallback to Month matching (e.g. "May 2026")
-        f_del = del_df[del_df["Delivery Month"] == selected_period].copy()
-        # Tickets strictly filtered by Ticket Creation Month (Ticket Month) for 100% operational matching
-        f_tick = tick_df[tick_df["Ticket Month"] == selected_period].copy()
-
-
-# ── DATE DIAGNOSTICS FOR QUALITY ASSURANCE ──
-if len(period_options) <= 1:
-    with st.sidebar.expander("🛠️ Live Date Debugger (Empty Months Detected)", expanded=True):
-        st.warning("⚠️ Checking Google Sheets format:")
-        st.write("**Delivered Columns:**", list(del_df_raw.columns))
-        if not del_df_raw.empty:
-            st.write("**First 3 raw dates:**", del_df_raw.iloc[:3, 0].tolist())
-        st.write("**Tickets Columns:**", list(tick_df_raw.columns))
-        if not tick_df_raw.empty:
-            st.write("**First 3 raw dates:**", tick_df_raw.iloc[:3, 0].tolist())
-
-
-# ── OPERATIONS UNIVERSE SEGMENT SELECTOR ──
-st.markdown("### 🔍 Segment Category Filter")
-analysis_mode = st.radio(
-    "Active Segment Filter",
-    ["Post Delivery", "Pre Delivery", "Combined"],
-    horizontal=True,
-    help="POST limits orders to 'delivered' and matches post tickets; PRE includes all orders and matches pre tickets."
-)
-
-if analysis_mode == "Post Delivery":
-    f_del_universe = f_del[f_del["is_delivered"] == True].copy()
-    f_tick_universe = f_tick[f_tick["ticket_category"] == "POST_DELIVERY"].copy()
-elif analysis_mode == "Pre Delivery":
-    f_del_universe = f_del.copy()
-    f_tick_universe = f_tick[f_tick["ticket_category"] == "PRE_DELIVERY"].copy()
-else:
-    f_del_universe = f_del.copy()
-    f_tick_universe = f_tick.copy()
-
-
-# ── COLLAPSED DEVELOPER DEBUGGER (MANDATORY VERIFICATION) ──
-# Hidden inside a closed expander by default to keep the production view clean
-with st.expander("🛠️ Developer Debugger & Data Reconciliation (Closed by Default)", expanded=False):
-    st.markdown(f"### 📋 System Verification & Data Reconciliation — {selected_period}")
-    status_col = "order_status" if "order_status" in f_del.columns else None
-    v_orders_filter = len(f_del)
-    v_delivered_rows = len(f_del[f_del[status_col].astype(str).str.strip().str.lower() == "delivered"]) if status_col else len(f_del)
-    v_all_status_rows = len(f_del)
-    v_post_tickets = len(f_tick[f_tick["ticket_category"] == "POST_DELIVERY"])
-    v_pre_tickets = len(f_tick[f_tick["ticket_category"] == "PRE_DELIVERY"])
-
-    v_post_esc = f"{v_post_tickets:,} / {v_delivered_rows:,} = {round((v_post_tickets / max(v_delivered_rows, 1)) * 100, 2)}%"
-    v_pre_esc = f"{v_pre_tickets:,} / {v_all_status_rows:,} = {round((v_pre_tickets / max(v_all_status_rows, 1)) * 100, 2)}%"
-
-    reconciliation_data = {
-        "Metric Parameter": [
-            "Orders after Month Filter",
-            "Delivered Rows (Post Denominator)",
-            "All Status Rows (Pre Denominator)",
-            "Post Tickets (Post Numerator)",
-            "Pre Tickets (Pre Numerator)",
-            "Post Escalation (Post Tickets / Delivered Rows)",
-            "Pre Escalation (Pre Tickets / All Status Rows)"
-        ],
-        "Value Count / Formula": [
-            f"{v_orders_filter:,}",
-            f"{v_delivered_rows:,}",
-            f"{v_all_status_rows:,}",
-            f"{v_post_tickets:,}",
-            f"{v_pre_tickets:,}",
-            v_post_esc,
-            v_pre_esc
-        ]
-    }
-    val_df = pd.DataFrame(reconciliation_data)
-    st.table(val_df)
-
-
-# ── RUN SEGMENT ANALYTICS (KEYWORD PARAMS SAFE) ──
-brand_sum = compute_brand_summary(
-    del_df=f_del_universe, 
-    tick_df=f_tick_universe, 
-    analysis_mode=analysis_mode,
-    crit_del=int(crit_del),
-    crit_esc=float(crit_esc),
-    crit_tix=int(crit_tix),
-    high_del=int(high_del),
-    high_esc=float(high_esc),
-    med_del=int(med_del),
-    med_esc=float(med_esc)
-)
-prod_sum = compute_product_summary(
-    del_df=f_del_universe, 
-    tick_df=f_tick_universe, 
-    analysis_mode=analysis_mode,
-    crit_del=int(crit_del),
-    crit_esc=float(crit_esc),
-    crit_tix=int(crit_tix),
-    high_del=int(high_del),
-    high_esc=float(high_esc),
-    med_del=int(med_del),
-    med_esc=float(med_esc)
-)
-cohort_report = compute_cohort_report(f_del_universe, f_tick_universe)
-weeks_list = sorted(f_del_universe["Delivery Week"].unique())
-weekly_trends = compute_weekly_trends(f_del_universe, f_tick_universe, weeks_list)
-subcat_sum = compute_subcat_summary(f_tick_universe)
-
-# Single Source of Truth KPIs: Delivered Orders always uses unique Order IDs (zop_id)
-status_col = "order_status" if "order_status" in f_del_universe.columns else None
-
-overall_orders_count = len(f_del_universe)
-overall_tickets_count = len(f_tick_universe)
-overall_esc_rate = round((overall_tickets_count / max(overall_orders_count, 1)) * 100, 2)
-
-subcat_col = "subcat_final" if "subcat_final" in f_tick_universe.columns else "raw_subcat"
-defect_tickets_count = len(f_tick_universe[f_tick_universe[subcat_col].isin(HIGH_SUBCATS)]) if not f_tick_universe.empty else 0
-overall_defect_rate = round((defect_tickets_count / max(overall_orders_count, 1)) * 100, 2)
-
-kpis = top_kpis(brand_sum, prod_sum, subcat_sum, f_tick_universe, f_del_universe, weeks_list)
-
-
-# ── HISTORICAL MOVEMENT COMPARISON ──
-comp_df_brand = pd.DataFrame()
-comp_df_prod = pd.DataFrame()
-has_comparison = len(available_months) >= 2
-
-if has_comparison:
-    m_names = [pd.to_datetime(m + "-01", format="%Y-%m-%d", errors="coerce") for m in available_months]
-    m_names = [d.strftime("%B %Y") if pd.notna(d) else str(d) for d in m_names]
-    month_a = m_names[-2]
-    month_b = m_names[-1]
-    
-    del_a = del_df[del_df["Delivery Month"] == month_a]
-    tick_a = tick_df[tick_df["Delivery Month"] == month_a]
-    del_b = del_df[del_df["Delivery Month"] == month_b]
-    tick_b = tick_df[tick_df["Delivery Month"] == month_b]
-    
-    brand_a = compute_brand_summary(del_df=del_a, tick_df=tick_a, analysis_mode=analysis_mode, crit_del=crit_del, crit_esc=crit_esc, crit_tix=crit_tix, high_del=high_del, high_esc=high_esc, med_del=med_del, med_esc=med_esc).set_index("brand")
-    brand_b = compute_brand_summary(del_df=del_b, tick_df=tick_b, analysis_mode=analysis_mode, crit_del=crit_del, crit_esc=crit_esc, crit_tix=crit_tix, high_del=high_del, high_esc=high_esc, med_del=med_del, med_esc=med_esc).set_index("brand")
-    
-    comp_df_brand = pd.DataFrame(index=sorted(list(set(brand_a.index) | set(brand_b.index))))
-    comp_df_brand["Month A Esc %"] = comp_df_brand.index.map(brand_a["esc_pct"]).fillna(0.0)
-    comp_df_brand["Month B Esc %"] = comp_df_brand.index.map(brand_b["esc_pct"]).fillna(0.0)
-    comp_df_brand["Esc % Difference"] = (comp_df_brand["Month B Esc %"] - comp_df_brand["Month A Esc %"]).round(2)
-    comp_df_brand["Esc Movement Status"] = comp_df_brand["Esc % Difference"].apply(
-        lambda x: "🚨 INCREASE" if x > 1.0 else "✅ DECREASE" if x < -1.0 else "→ STABLE"
-    )
-    comp_df_brand = comp_df_brand.reset_index().rename(columns={"index": "Brand"})
-
-    prod_a = compute_product_summary(del_df=del_a, tick_df=tick_a, analysis_mode=analysis_mode, crit_del=crit_del, crit_esc=crit_esc, crit_tix=crit_tix, high_del=high_del, high_esc=high_esc, med_del=med_del, med_esc=med_esc).set_index("brand_product")
-    prod_b = compute_product_summary(del_df=del_b, tick_df=tick_b, analysis_mode=analysis_mode, crit_del=crit_del, crit_esc=crit_esc, crit_tix=crit_tix, high_del=high_del, high_esc=high_esc, med_del=med_del, med_esc=med_esc).set_index("brand_product")
-    
-    comp_df_prod = pd.DataFrame(index=sorted(list(set(prod_a.index) | set(prod_b.index))))
-    comp_df_prod["Month A Esc %"] = comp_df_prod.index.map(prod_a["esc_pct"]).fillna(0.0)
-    comp_df_prod["Month B Esc %"] = comp_df_prod.index.map(prod_b["esc_pct"]).fillna(0.0)
-    comp_df_prod["Esc % Difference"] = (comp_df_prod["Month B Esc %"] - comp_df_prod["Month A Esc %"]).round(2)
-    comp_df_prod["Esc Movement Status"] = comp_df_prod["Esc % Difference"].apply(
-        lambda x: "🚨 INCREASE" if x > 1.0 else "✅ DECREASE" if x < -1.0 else "→ STABLE"
-    )
-    comp_df_prod = comp_df_prod.reset_index().rename(columns={"index": "brand_product"})
-    comp_df_prod["Brand"] = comp_df_prod["brand_product"].apply(lambda x: x.split(" | ")[0] if " | " in str(x) else str(x))
-    comp_df_prod["Product"] = comp_df_prod["brand_product"].apply(lambda x: x.split(" | ")[1] if " | " in str(x) else "")
-    comp_df_prod = comp_df_prod[["Brand", "Product", "Month A Esc %", "Month B Esc %", "Esc % Difference", "Esc Movement Status"]]
-
-
-# ── REPORT EXPORTER TRIGGER ──
-xl_data = generate_excel_report(
-    kpis, brand_sum, prod_sum, subcat_sum,
-    weekly_trends, redist_sum, cohort_report, comp_df_brand, comp_df_prod,
-    registry, f_tick, f_del,
-    orig_tickets=orig, final_tickets=final_c, val_ok=val_ok, period=str(selected_period)
-)
-
-st.sidebar.download_button(
-    "⬇️ Export Excel Report", data=xl_data,
-    file_name=f"OpsIntel_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    width='stretch'
-)
-
-
-# ── Premium Hero Section (Datadog & Microsoft Fabric Styling) ──
-st.markdown(f"""
-<div style="background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-    <div>
-        <span class="badge badge-low" style="margin-bottom: 0.5rem;"><span class="status-dot green pulse"></span>ONLINE & SYNCED</span>
-        <h2 style="margin: 0; font-size: 24px; font-weight: 700; color: #F8FAFC;">OPX Hero Overview</h2>
-        <p style="margin: 4px 0 0 0; font-size: 12px; color: #94A3B8;">Operations, tickets, and escalation metrics synced in real-time.</p>
-    </div>
-    <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
-        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
-            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Environment</p>
-            <p style="margin: 2px 0 0 0; font-size: 13px; color: #3B82F6; font-weight: 700;">PROD-CLUSTER-01</p>
-        </div>
-        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
-            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Time Filter</p>
-            <p style="margin: 2px 0 0 0; font-size: 13px; color: #F8FAFC; font-weight: 700;">{selected_period}</p>
-        </div>
-        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
-            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Analysis Segment</p>
-            <p style="margin: 2px 0 0 0; font-size: 13px; color: #F59E0B; font-weight: 700;">{analysis_mode}</p>
-        </div>
-        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
-            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Last Sync</p>
-            <p style="margin: 2px 0 0 0; font-size: 13px; color: #22C55E; font-weight: 700;">{db_stats['tickets_last_updated'] if db_stats['tickets_last_updated'] != 'Never' else 'No Active Sync'}</p>
-        </div>
-        <div>
-            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Database Status</p>
-            <p style="margin: 2px 0 0 0; font-size: 13px; color: #22C55E; font-weight: 700;">HEALTHY</p>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ── DATABASE HEALTH ALERTS ──
-if corrupt_db_flag:
-    st.markdown(f"""
-    <div class="notification-banner">
-        <h4 style="margin: 0 0 6px 0; color: #EF4444; font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-            <span class="status-dot red pulse"></span>Legacy Database Corruption Detected
-        </h4>
-        <p style="margin: 0 0 10px 0; font-size: 13px; color: #94A3B8; line-height: 1.5;">
-            The active database contains corrupted ticket subcategories (only 'POST_DELIVERY' / 'PRE_DELIVERY' values are found in the subcategory column). This occurs because the database was populated using a previous buggy version of the code.
-        </p>
-        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 600;">
-            Action Plan: Switch to the Admin Control Panel, run the Database Reset, and re-upload your raw Orders and Tickets sheets to populate clean, healthy entries.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ── KPI METRICS DISPLAY ──
-st.markdown("### 📊 Active Segment Performance Overview")
-
-# Modified HTML template engine to generate glass aesthetic
-def kpi(label, value, sub="", color="blue"):
     color_map = {
         "blue": {
             "accent": "#3B82F6",
@@ -736,6 +337,59 @@ def kpi(label, value, sub="", color="blue"):
     </div>
     """, unsafe_allow_html=True)
 
+
+# ── Premium Hero Section (Datadog & Microsoft Fabric Styling) ──
+st.markdown(f"""
+<div style="background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <div>
+        <span class="badge badge-low" style="margin-bottom: 0.5rem;"><span class="status-dot green pulse"></span>ONLINE & SYNCED</span>
+        <h2 style="margin: 0; font-size: 24px; font-weight: 700; color: #F8FAFC;">OPX Hero Overview</h2>
+        <p style="margin: 4px 0 0 0; font-size: 12px; color: #94A3B8;">Operations, tickets, and escalation metrics synced in real-time.</p>
+    </div>
+    <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
+            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Environment</p>
+            <p style="margin: 2px 0 0 0; font-size: 13px; color: #3B82F6; font-weight: 700;">PROD-CLUSTER-01</p>
+        </div>
+        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
+            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Time Filter</p>
+            <p style="margin: 2px 0 0 0; font-size: 13px; color: #F8FAFC; font-weight: 700;">{selected_period}</p>
+        </div>
+        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
+            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Analysis Segment</p>
+            <p style="margin: 2px 0 0 0; font-size: 13px; color: #F59E0B; font-weight: 700;">{analysis_mode}</p>
+        </div>
+        <div style="border-right: 1px solid #1E293B; padding-right: 1.5rem;">
+            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Last Sync</p>
+            <p style="margin: 2px 0 0 0; font-size: 13px; color: #22C55E; font-weight: 700;">{db_stats['tickets_last_updated'] if db_stats['tickets_last_updated'] != 'Never' else 'No Active Sync'}</p>
+        </div>
+        <div>
+            <p style="margin: 0; font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Database Status</p>
+            <p style="margin: 2px 0 0 0; font-size: 13px; color: #22C55E; font-weight: 700;">HEALTHY</p>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── DATABASE HEALTH ALERTS ──
+if corrupt_db_flag:
+    st.markdown(f"""
+    <div class="notification-banner">
+        <h4 style="margin: 0 0 6px 0; color: #EF4444; font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+            <span class="status-dot red pulse"></span>Legacy Database Corruption Detected
+        </h4>
+        <p style="margin: 0 0 10px 0; font-size: 13px; color: #94A3B8; line-height: 1.5;">
+            The active database contains corrupted ticket subcategories (only 'POST_DELIVERY' / 'PRE_DELIVERY' values are found in the subcategory column). This occurs because the database was populated using a previous buggy version of the code.
+        </p>
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 600;">
+            Action Plan: Switch to the Admin Control Panel, run the Database Reset, and re-upload your raw Orders and Tickets sheets to populate clean, healthy entries.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ── KPI METRICS DISPLAY ──
+st.markdown("### 📊 Active Segment Performance Overview")
 
 if analysis_mode == "Combined":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -1028,7 +682,7 @@ with tab5:
             st.dataframe(disp_comp_prod, use_container_width=True)
 
 # TAB 6: Validation Panel
-with tab6:
+with tabs[5] if 'tabs' in locals() else tab6:
     st.markdown('<p class="shdr">System Audit & Reconciliation Ledger</p>', unsafe_allow_html=True)
     
     validation_status = "PASS ✅" if val_ok else "FAIL ❌"
@@ -1059,7 +713,7 @@ with tab6:
         st.write(D["norm_cat_counts"])
 
 # TAB 7: Redistribution Audit
-with tab7:
+with tabs[6] if 'tabs' in locals() else tab7:
     st.markdown('<p class="shdr">Redistribution Audit Log Ledger</p>', unsafe_allow_html=True)
     if not redist_sum.empty:
         st.dataframe(redist_sum, use_container_width=True)
@@ -1067,7 +721,7 @@ with tab7:
         st.info("No unmapped redistribution activities recorded.")
 
 # TAB 8: AI Insights
-with tab8:
+with tabs[7] if 'tabs' in locals() else tab8:
     st.markdown('<p class="shdr">Cognitive Operational Insights & Recommendations</p>', unsafe_allow_html=True)
     if not ai_on:
         st.info("AI Analysis is deactivated. Toggle 'Enable AI Analysis' in the sidebar.")
