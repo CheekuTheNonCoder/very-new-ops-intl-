@@ -346,6 +346,12 @@ def kpi(label, value, sub="", color="blue"):
     """, unsafe_allow_html=True)
 
 
+# ── PIPELINE CALCULATIONS ENGINE RUNNER ──
+@st.cache_data(show_spinner=False)
+def run_pipeline(del_df_raw, tick_df_raw, app_version="v4.3"):
+    return process_pipeline(del_df_raw, tick_df_raw)
+
+
 # ── COLD START DATA VALIDATOR ──
 if del_df_raw.empty or tick_df_raw.empty:
     if view_mode == "📈 Public Dashboard":
@@ -484,7 +490,7 @@ else:
         # Fallback to Month matching (e.g. "May 2026")
         f_del = del_df[del_df["Delivery Month"] == selected_period].copy()
         # Tickets strictly filtered by Ticket Creation Month (Ticket Month) for 100% operational matching
-        f_tick = tick_df[tick_df["Ticket Month"] == selected_period].copy()
+        f_tick = tick_df[f_tick["Ticket Month"] == selected_period].copy()
 
 
 # ── DATE DIAGNOSTICS FOR QUALITY ASSURANCE ──
@@ -519,20 +525,22 @@ else:
     f_tick_universe = f_tick.copy()
 
 
+# ── CALCULATE ACTIVE VARIABLES SAFELY FOR GENERAL SCOPE ──
+status_col = "order_status" if "order_status" in f_del.columns else None
+v_orders_filter = len(f_del)
+v_delivered_rows = len(f_del[f_del[status_col].astype(str).str.strip().str.lower() == "delivered"]) if status_col else len(f_del)
+v_all_status_rows = len(f_del)
+v_post_tickets = len(f_tick[f_tick["ticket_category"] == "POST_DELIVERY"])
+v_pre_tickets = len(f_tick[f_tick["ticket_category"] == "PRE_DELIVERY"])
+
+v_post_esc = f"{v_post_tickets:,} / {v_delivered_rows:,} = {round((v_post_tickets / max(v_delivered_rows, 1)) * 100, 2)}%"
+v_pre_esc = f"{v_pre_tickets:,} / {v_all_status_rows:,} = {round((v_pre_tickets / max(v_all_status_rows, 1)) * 100, 2)}%"
+
+
 # ── COLLAPSED DEVELOPER DEBUGGER (MANDATORY VERIFICATION) ──
 # Hidden inside a closed expander by default to keep the production view clean
 with st.expander("🛠️ Developer Debugger & Data Reconciliation (Closed by Default)", expanded=False):
     st.markdown(f"### 📋 System Verification & Data Reconciliation — {selected_period}")
-    status_col = "order_status" if "order_status" in f_del.columns else None
-    v_orders_filter = len(f_del)
-    v_delivered_rows = len(f_del[f_del[status_col].astype(str).str.strip().str.lower() == "delivered"]) if status_col else len(f_del)
-    v_all_status_rows = len(f_del)
-    v_post_tickets = len(f_tick[f_tick["ticket_category"] == "POST_DELIVERY"])
-    v_pre_tickets = len(f_tick[f_tick["ticket_category"] == "PRE_DELIVERY"])
-
-    v_post_esc = f"{v_post_tickets:,} / {v_delivered_rows:,} = {round((v_post_tickets / max(v_delivered_rows, 1)) * 100, 2)}%"
-    v_pre_esc = f"{v_pre_tickets:,} / {v_all_status_rows:,} = {round((v_pre_tickets / max(v_all_status_rows, 1)) * 100, 2)}%"
-
     reconciliation_data = {
         "Metric Parameter": [
             "Orders after Month Filter",
