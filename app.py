@@ -60,6 +60,13 @@ with st.sidebar:
     <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 2rem; margin-top: 1rem;">
         <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 0px 8px rgba(59, 130, 246, 0.6));">
             <path d="M23 2C32 2 39 5 39 12V24C39 31.5 32.5 38 23 44C13.5 38 7 31.5 7 24V12C7 5 14 2 23 2Z" fill="#0F172A" stroke="#3B82F6" stroke-width="2"/>
+            <defs>
+                <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="rgba(59, 130, 246, 0.3)" />
+                    <stop offset="100%" stop-color="transparent" />
+                </linearGradient>
+            </defs>
+            <path d="M23 2C32 2 39 5 39 12V24C39 31.5 32.5 38 23 44C13.5 38 7 31.5 7 24V12C7 5 14 2 23 2Z" fill="url(#shieldGrad)" style="opacity:0.25;"/>
             <text x="50%" y="58%" dominant-baseline="middle" text-anchor="middle" font-family="'Inter', sans-serif" font-weight="900" font-size="11" fill="#FFFFFF">OPX</text>
         </svg>
         <div>
@@ -638,22 +645,6 @@ if has_comparison:
     comp_df_prod = comp_df_prod[["Brand", "Product", "Month A Esc %", "Month B Esc %", "Esc % Difference", "Esc Movement Status"]]
 
 
-# ── REPORT EXPORTER TRIGGER ──
-xl_data = generate_excel_report(
-    kpis, brand_sum, prod_sum, subcat_sum,
-    weekly_trends, redist_sum, cohort_report, comp_df_brand, comp_df_prod,
-    registry, f_tick, f_del,
-    orig_tickets=orig, final_tickets=final_c, val_ok=val_ok, period=str(selected_period)
-)
-
-st.sidebar.download_button(
-    "⬇️ Export Excel Report", data=xl_data,
-    file_name=f"OpsIntel_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    width='stretch'
-)
-
-
 # ── Premium Hero Section (Datadog & Microsoft Fabric Styling) ──
 st.markdown(f"""
 <div style="background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
@@ -894,7 +885,7 @@ with tab2:
     disp_p = prod_sum[prod_sum["impact"].isin(p_imp_f)].copy() if not prod_sum.empty else pd.DataFrame()
     if p_brand_f and not disp_p.empty:
         disp_p = disp_p[disp_p["brand"].isin(p_brand_f)]
-    if p_min_del > 0 parks and not disp_p.empty:
+    if p_min_del > 0 and not disp_p.empty:
         disp_p = disp_p[disp_p["delivered"] >= p_min_del]
         
     if not disp_p.empty:
