@@ -27,6 +27,8 @@ st.set_page_config(
 )
 
 # ── 1. INITIALIZE DATABASE & RETRIEVE METRIC STATS ──
+# Run database schema check first thing on startup
+auto_migrate_google_sheets()
 db_stats = get_database_stats()
 del_df_raw = load_orders()
 tick_df_raw = load_tickets()
