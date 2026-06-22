@@ -33,6 +33,15 @@ db_stats = get_database_stats()
 del_df_raw = load_orders()
 tick_df_raw = load_tickets()
 
+# ── DATABASE QUALITY HEALTH CHECK ──
+is_db_corrupted = False
+if not tick_df_raw.empty and "raw_subcat" in tick_df_raw.columns:
+    unique_subcats = set(tick_df_raw["raw_subcat"].dropna().unique())
+    valid_unique_subcats = {s for s in unique_subcats if s.strip() and s.lower() not in ("nan", "none", "null")}
+    # If the subcategory column ONLY contains segment definitions (POST_DELIVERY/PRE_DELIVERY)
+    if valid_unique_subcats and valid_unique_subcats.issubset({"POST_DELIVERY", "PRE_DELIVERY"}):
+        is_db_corrupted = True
+
 
 # ── 2. SIDEBAR STYLING & INTERFACE ──
 with st.sidebar:
@@ -435,6 +444,19 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
+# ── DATABASE HEALTH ALERTS ──
+if is_db_corrupted:
+    st.error(
+        "⚠️ **Legacy Database Corruption Detected**\n\n"
+        "The active database contains corrupted ticket subcategories (only 'POST_DELIVERY' / 'PRE_DELIVERY' values are found in the subcategory column).\n\n"
+        "This occurs because the database was populated using a previous buggy version of the code.\n\n"
+        "**How to Fix:**\n"
+        "1. Switch to **🔐 Admin Control Panel** in the sidebar.\n"
+        "2. Scroll to the **Reset Database** section.\n"
+        "3. Click **🚨 Purge & Reset Database**.\n"
+        "4. Re-upload your raw **Orders** and **Tickets** sheets to populate the database cleanly.\n\n"
+        "*(Note: If you have committed `operations.db` inside your GitHub repository, please delete it from the repo with `git rm operations.db` and push. Leaving a tracked .db file in your repo will revert your live updates on every code update)*"
+    )
 
 # ── KPI METRICS DISPLAY ──
 st.markdown("### 📊 Active Segment Performance Overview")
@@ -453,7 +475,7 @@ else:
         lbl_o = "Delivered Orders" if analysis_mode == "Post Delivery" else "Total Orders"
         kpi(lbl_o, f"{overall_orders_count:,}", "Raw row count from the orders dataset.", "blue")
     with c2: 
-        kpi("Tickets", f"{overall_tickets_count:,}", "Filtered universe numerator.", "red")
+        kpi("Tickets", f"{overall_tickets_count:,}", "Total registered support requests.", "red")
     with c3: 
         lbl_esc_name = "Post Escalation %" if analysis_mode == "Post Delivery" else "Pre Escalation %"
         kpi(lbl_esc_name, f"{overall_esc_rate}%", "Support tickets ÷ orders.", "amber" if overall_esc_rate >= 3.0 else "green")
@@ -489,22 +511,20 @@ with c_right:
                 f"""<div class="brow">
                     <b style="color:#58A6FF">{row['subcat_final']}</b>
                     <span style="float:right;color:#E6EDF3"><b>{row['count']:,} tickets</b> ({row['pct']:.1f}%)</span>
-                    <br><small style="color:#8B949E">Classification Tier: {row['tier']}</small>
+                    <br><small style="color:#8B949E">Tier Status: {row['tier']}</small>
                 </div>""", 
                 unsafe_allow_html=True
             )
 
-st.divider()
 
-
-# ── TAB SYSTEM ──
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-    "🏷️ Brand Intel", "📦 Product Intel", "📅 Weekly Trends",
-    "📊 Issue Breakdown", "📈 Month Comparison", "📋 Validation Panel", "🗺️ Redistribution Audit", "🤖 AI Insights"
+# ── TABBED SUB-PORTAL PANELS ──
+tabs = st.tabs([
+    "🏢 Brand Analysis", "📦 Product Performance", "📑 Incident Trends", 
+    "📈 Weekly Analysis", "🔍 Validation Log & Audit", "🤖 AI Ops Engineer"
 ])
 
-# TAB 1: Brand Intel
-with tab1:
+# TAB 1: Brand Performance
+with tabs[0]:
     st.markdown('<p class="shdr">Brand Performance Matrix</p>', unsafe_allow_html=True)
     b_fa, b_fb, b_fc = st.columns(3)
     with b_fa:
@@ -567,24 +587,33 @@ with tab1:
             bi = f_tick_universe[f_tick_universe["brand"] == sel_b].groupby("subcat_final").size().reset_index(name="Tickets").sort_values("Tickets", ascending=False) if not f_tick_universe.empty else pd.DataFrame()
             st.dataframe(bi, use_container_width=True)
 
-# TAB 2: Product Intel
-with tab2:
+# TAB 2: Product Performance
+with tabs[1]:
     st.markdown('<p class="shdr">Product Performance Matrix</p>', unsafe_allow_html=True)
-    p_fa, p_fb, p_fc = st.columns(3)
-    with p_fa:
-        p_brand_f = st.multiselect("Filter by Brand Profiles", sorted(prod_sum["brand"].unique()) if not prod_sum.empty else [], key="p_brand_tab")
-    with p_fb:
-        p_imp_f = st.multiselect("Filter by Product Impact", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH", "MEDIUM", "LOW"], key="p_imp_tab")
-    with p_fc:
-        p_min_del = st.number_input("Minimum Products Volume Threshold", value=0, step=50, key="p_min_tab")
+    b_fa, b_fb, b_fc = st.columns(3)
+    with b_fa:
+        b_imp_f = st.multiselect("Impact Level Filter", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH", "MEDIUM", "LOW"], key="p_imp_tab")
+    with b_fb:
+        p_sort_choice = st.selectbox("Sort Matrix By", [
+            "Highest Tickets", "Lowest Tickets", "Highest Esc %", "Lowest Esc %"
+        ], key="p_sort_tab")
+    with b_fc:
+        p_min_del = st.number_input("Minimum Orders Threshold", value=0, step=50, key="p_min_tab")
         
-    disp_p = prod_sum[prod_sum["impact"].isin(p_imp_f)].copy() if not prod_sum.empty else pd.DataFrame()
-    if p_brand_f and not disp_p.empty:
-        disp_p = disp_p[disp_p["brand"].isin(p_brand_f)]
+    disp_p = prod_sum[prod_sum["impact"].isin(b_imp_f)].copy() if not prod_sum.empty else pd.DataFrame()
     if p_min_del > 0 and not disp_p.empty:
         disp_p = disp_p[disp_p["delivered"] >= p_min_del]
         
     if not disp_p.empty:
+        if p_sort_choice == "Highest Tickets":
+            disp_p = disp_p.sort_values("tickets", ascending=False)
+        elif p_sort_choice == "Lowest Tickets":
+            disp_p = disp_p.sort_values("tickets", ascending=True)
+        elif p_sort_choice == "Highest Esc %":
+            disp_p = disp_p.sort_values("esc_pct", ascending=False)
+        elif p_sort_choice == "Lowest Esc %":
+            disp_p = disp_p.sort_values("esc_pct", ascending=True)
+
         if analysis_mode == "Combined":
             st.dataframe(disp_p[["brand", "canonical_product", "delivered_pre", "delivered_post", "tickets_pre", "tickets_post", "pre_esc_pct", "post_esc_pct", "Ticket Aging Category", "impact"]], use_container_width=True)
         else:
@@ -620,7 +649,7 @@ with tab2:
             st.info("No normalization activity logs recorded.")
 
 # TAB 3: Weekly Trends
-with tab3:
+with tabs[3]:
     st.markdown('<p class="shdr">Weekly WoW Escalation Performance</p>', unsafe_allow_html=True)
     if not weekly_trends.empty:
         st.dataframe(weekly_trends, use_container_width=True)
@@ -628,7 +657,7 @@ with tab3:
         st.info("No weekly performance summaries found.")
 
 # TAB 4: Issue Breakdown
-with tab4:
+with tabs[2]:
     st.markdown('<p class="shdr">Support Subcategory Severity Distribution</p>', unsafe_allow_html=True)
     if not subcat_sum.empty:
         st.dataframe(subcat_sum, use_container_width=True)
@@ -636,7 +665,7 @@ with tab4:
         st.info("No recorded support tickets found.")
 
 # TAB 5: Month Comparison
-with tab5:
+with tabs[4]:
     st.markdown('<p class="shdr">Chronological Delivery Cohorts</p>', unsafe_allow_html=True)
     if not cohort_report.empty:
         st.dataframe(cohort_report, use_container_width=True)
@@ -685,7 +714,7 @@ with tab5:
             st.dataframe(disp_comp_prod, use_container_width=True)
 
 # TAB 6: Validation Panel
-with tab6:
+with tabs[4]:
     st.markdown('<p class="shdr">System Audit & Reconciliation Ledger</p>', unsafe_allow_html=True)
     
     validation_status = "PASS ✅" if val_ok else "FAIL ❌"
@@ -716,7 +745,7 @@ with tab6:
         st.write(D["norm_cat_counts"])
 
 # TAB 7: Redistribution Audit
-with tab7:
+with tabs[4]:
     st.markdown('<p class="shdr">Redistribution Audit Log Ledger</p>', unsafe_allow_html=True)
     if not redist_sum.empty:
         st.dataframe(redist_sum, use_container_width=True)
@@ -724,7 +753,7 @@ with tab7:
         st.info("No unmapped redistribution activities recorded.")
 
 # TAB 8: AI Insights
-with tab8:
+with tabs[5]:
     st.markdown('<p class="shdr">Cognitive Operational Insights & Recommendations</p>', unsafe_allow_html=True)
     if not ai_on:
         st.info("AI Analysis is deactivated. Toggle 'Enable AI Analysis' in the sidebar.")
@@ -762,20 +791,25 @@ Ensure your recommendations reference metrics from the dataset. Maintain a busin
                     except Exception as e:
                         handle_ai_error(e)
         with ai2:
-            st.markdown("#### 💬 Ask Operational Expert")
-            q = st.text_area("Question", placeholder="e.g. Which specific product drivers are causing the highest defect spikes this month?", height=90, key="ai_q")
-            if st.button("Query Expert", key="ai_ask"):
-                if q.strip():
+            st.markdown("#### 💬 Ask any questions about your operations")
+            user_question = st.text_input("Enter your diagnostic question", placeholder="Why did the defect rate spike on brand X during week 2?")
+            if st.button("Query AI Agent", key="ai_ask"):
+                if user_question.strip():
                     with st.spinner("Processing scenario..."):
                         try:
-                            out = call_gemini(f"""Senior Escalation Engineer.
-Active Analysis Universe Mode: {analysis_mode}
-{overall_orders_count:,} orders, {overall_tickets_count:,} tickets.
-Top Brands: {json.dumps(top10b)}
-Top Products: {json.dumps(top10p)}
-Top Issues: {json.dumps(top_i)}
-User Query: {q}
-Respond directly to the user's query using calculations and metrics from the provided data. Avoid speculation.""", api_key)
+                            out = call_gemini(f"""You are a professional operations engineer analyzing medical school support metrics.
+Database context:
+- Overall Orders: {overall_orders_count}
+- Overall Tickets: {overall_tickets_count}
+- Overall Escalation: {overall_esc_rate}%
+- Overall Defect Rate: {overall_defect_rate}%
+- Top brands performance: {json.dumps(top10b)}
+- Top product categories: {json.dumps(top10p)}
+- Primary issue drivers: {json.dumps(top_i)}
+
+User query: {user_question}
+
+Deliver an engineered, metrics-backed answer based strictly on this dataset. Do not speculate.""", api_key)
                             st.markdown(f'<div class="ai-box">{out}</div>', unsafe_allow_html=True)
                         except Exception as e:
                             handle_ai_error(e)
