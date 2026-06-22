@@ -1,7 +1,7 @@
 """
-engine_loader.py — Time Intelligence & Dynamic Loader (v5.0)
-Loads raw datasets from SQLite and applies dynamic date parsing and hierarchies.
-Fixed: Renamed raw tickets loader to load_tickets_raw to resolve app.py ImportError.
+engine_loader.py — Time Intelligence & Dynamic Loader (v4.0)
+Calculates hierarchies, handles cohort joins, and tracks date intervals dynamically.
+Fixed: Bypassed double-parsing on SQLite-loaded dataframes to prevent column collision bugs.
 """
 import io
 import pandas as pd
@@ -37,7 +37,6 @@ def _detect_date_col(df):
     Intelligently scans all columns in the DataFrame to locate the most likely date column.
     Checks for keyword matches, and fallbacks to parsing columns until one succeeds with minimal NaT.
     """
-    # Enforces exact order_delivered_at, order_created_at and createdAtDate mappings
     date_keywords = ["order_delivered_at", "order_created_at", "delivered_at", "createdatdate", "created_at", "date", "time", "created", "timestamp", "day", "delivered"]
     
     # Keyword search
@@ -308,8 +307,18 @@ def process_pipeline(del_input, tick_input, rng_seed=42):
 
     # ── Step 1: Loading ──
     update(5, "Loading active operational datasets...")
-    del_raw = load_delivered(del_input)
-    tick_raw = load_tickets_raw(tick_input)
+    
+    # FIX: If already processed from SQLite (contains 'raw_date'/'raw_subcat'), use directly to bypass double-parsing bugs
+    if isinstance(del_input, pd.DataFrame) and "raw_date" in del_input.columns:
+        del_raw = del_input.copy()
+    else:
+        del_raw = load_delivered(del_input)
+        
+    if isinstance(tick_input, pd.DataFrame) and "raw_subcat" in tick_input.columns:
+        tick_raw = tick_input.copy()
+    else:
+        tick_raw = load_tickets_raw(tick_input)
+        
     ORIGINAL_TICKET_COUNT = len(tick_raw)
 
     # ── Step 2: Normalize Brands ──
