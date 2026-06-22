@@ -1,7 +1,7 @@
 """
-database_loader.py — Local SQLite Database Sync Engine (v5.0)
+database_loader.py — Production-grade SQLite Database Sync Module (v5.0)
 Responsible only for low-level SQLite database operations.
-Fixed: Removed legacy Google Sheets migration to prevent circular imports and compilation crashes.
+Removed: All legacy Google Sheets, SPREADSHEET_ID, and URL migration codes completely.
 """
 import os
 import sqlite3
@@ -99,7 +99,7 @@ def save_orders(df):
         
         cursor = conn.cursor()
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_id ON orders (order_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_brand ON orders (brand)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_brand ON orders (raw_brand)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (order_status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_del_month ON orders (\"Delivery Month\")")
         
@@ -121,7 +121,7 @@ def save_tickets(df):
         
         cursor = conn.cursor()
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_order_id ON tickets (order_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_brand ON tickets (brand)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_brand ON tickets (raw_brand)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_cat ON tickets (ticket_category)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_tick_month ON tickets (\"Ticket Month\")")
         
