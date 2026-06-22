@@ -1,6 +1,7 @@
 """
 database_loader.py — Local SQLite Database Sync Engine (v5.0)
 Responsible only for low-level SQLite database operations.
+Fixed: Removed legacy Google Sheets migration to prevent circular imports and compilation crashes.
 """
 import os
 import sqlite3
@@ -12,21 +13,20 @@ DB_PATH = "operations.db"
 
 def get_connection():
     """Establishes and returns an optimized connection to the local SQLite database."""
-    # Timeout set to 30.0s to prevent concurrent database lock blocks
+    # Added 30 seconds busy timeout and enabled WAL mode for concurrent reading/writing
     conn = sqlite3.connect(DB_PATH, timeout=30.0)
-    # Enable WAL mode for thread-safe concurrent reading/writing
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 
 def init_db():
-    """Creates the operational schema tables and registries if they do not exist."""
+    """Creates the operational schema tables if they do not exist."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         
-        # Configuration metadata
+        # Metadata config table
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS config (
             setting TEXT PRIMARY KEY,
@@ -34,7 +34,7 @@ def init_db():
         )
         """)
         
-        # Canonical Brand Registry
+        # Brand Registry
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS brand_registry (
             canonical_brand TEXT PRIMARY KEY,
@@ -83,13 +83,13 @@ def sanitize_for_sqlite(df):
                 df_clean[col] = pd.to_numeric(df_clean[col])
             except Exception:
                 # Cast all other mixed object items safely to text strings
-                df_clean[col] = df_clean[col].apply(lambda x: "" if pd.isna(x) else str(x))
+                df_clean[col] = df_clean[col].astype(str)
                 
     return df_clean
 
 
-def save_orders_to_db(df):
-    """Saves orders DataFrame directly to SQLite and builds query performance indexes."""
+def save_orders(df):
+    """Saves raw order records directly to SQLite and builds query performance indexes."""
     init_db()
     conn = get_connection()
     try:
@@ -110,7 +110,7 @@ def save_orders_to_db(df):
         conn.close()
 
 
-def save_tickets_to_db(df):
+def save_tickets(df):
     """Saves tickets DataFrame directly to SQLite and applies database indexes."""
     init_db()
     conn = get_connection()
@@ -132,8 +132,8 @@ def save_tickets_to_db(df):
         conn.close()
 
 
-def load_raw_orders_from_db():
-    """Loads raw orders from the SQLite database."""
+def load_orders():
+    """Loads all orders from the local SQLite database."""
     if not os.path.exists(DB_PATH):
         return pd.DataFrame()
     conn = get_connection()
@@ -146,8 +146,8 @@ def load_raw_orders_from_db():
     return df
 
 
-def load_raw_tickets_from_db():
-    """Loads raw tickets from the SQLite database."""
+def load_tickets():
+    """Loads all tickets from the local SQLite database."""
     if not os.path.exists(DB_PATH):
         return pd.DataFrame()
     conn = get_connection()
@@ -174,6 +174,7 @@ def get_database_stats():
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        
         try:
             cursor.execute("SELECT COUNT(*) FROM orders")
             stats["total_orders"] = cursor.fetchone()[0]
