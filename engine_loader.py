@@ -263,8 +263,10 @@ def load_tickets_raw(df_or_bytes):
     order_col = _detect_order_col(df)
     prod_col = _detect_product_col(df)
     brand_col = _detect_brand_col(df)
-    cat_col = next((c for c in df.columns if c == "Ticket Category"), None) or _detect_col(df, ["Ticket Category", "category"], 5)
-    subcat_col = next((c for c in df.columns if c == "Ticket Sub-Category"), None) or _detect_col(df, ["Ticket Sub-Category", "sub-category", "subcategory"], 6)
+    
+    # Robust multi-pass search mapping to prevent column index shifts and database-loaded collision mismatches
+    cat_col = next((c for c in df.columns if c == "Ticket Category"), None) or _detect_col(df, ["Ticket Category", "category", "raw_category", "ticket_category"], 4)
+    subcat_col = next((c for c in df.columns if c == "Ticket Sub-Category"), None) or _detect_col(df, ["Ticket Sub-Category", "sub-category", "sub category", "sub_category", "subcategory", "subcat", "raw_subcat"], 5)
     
     out = pd.DataFrame({
         "order_id": df[order_col].astype(str).str.strip(),
