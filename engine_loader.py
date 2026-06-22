@@ -1,7 +1,6 @@
 """
-engine_loader.py — Time Intelligence & Dynamic Loader (v4.0)
-Calculates hierarchies, handles cohort joins, and tracks date intervals dynamically.
-Fixed: Cast Date and Period objects strictly to text strings to prevent SQLite serialization errors.
+engine_loader.py — Time Intelligence & Dynamic Loader (v5.0)
+Loads raw datasets from SQLite and applies dynamic date parsing and hierarchies.
 """
 import io
 import pandas as pd
@@ -13,6 +12,7 @@ from engine_redistribute import (
     compute_brand_weights, redistribute_tickets,
     redistribute_subcat, build_redistribution_summary
 )
+import database_loader
 
 
 def _detect_col(df, keywords, fallback=0):
@@ -36,7 +36,6 @@ def _detect_date_col(df):
     Intelligently scans all columns in the DataFrame to locate the most likely date column.
     Checks for keyword matches, and fallbacks to parsing columns until one succeeds with minimal NaT.
     """
-    # Enforces exact order_delivered_at, order_created_at and createdAtDate mappings
     date_keywords = ["order_delivered_at", "order_created_at", "delivered_at", "createdatdate", "created_at", "date", "time", "created", "timestamp", "day", "delivered"]
     
     # Keyword search
@@ -249,7 +248,7 @@ def load_delivered(df_or_bytes):
     return out
 
 
-def load_tickets(df_or_bytes):
+def load_tickets_raw(df_or_bytes):
     """Processes Support Ticket datasets mapping exact OrderID schema rules."""
     if isinstance(df_or_bytes, pd.DataFrame):
         df = df_or_bytes.copy()
@@ -285,6 +284,16 @@ def load_tickets(df_or_bytes):
     return out
 
 
+def load_orders():
+    """Loads all orders from local SQLite database."""
+    return database_loader.load_orders()
+
+
+def load_tickets():
+    """Loads all tickets from local SQLite database."""
+    return database_loader.load_tickets()
+
+
 def process_pipeline(del_input, tick_input, rng_seed=42):
     """Executes structural dataset loadings, matches cohorts safely, and redistributes unmapped brand tickets."""
     rng = np.random.default_rng(rng_seed)
@@ -298,7 +307,7 @@ def process_pipeline(del_input, tick_input, rng_seed=42):
     # ── Step 1: Loading ──
     update(5, "Loading active operational datasets...")
     del_raw = load_delivered(del_input)
-    tick_raw = load_tickets(tick_input)
+    tick_raw = load_tickets_raw(del_input) if isinstance(tick_input, str) else load_tickets_raw(tick_input)
     ORIGINAL_TICKET_COUNT = len(tick_raw)
 
     # ── Step 2: Normalize Brands ──
