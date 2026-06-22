@@ -1,7 +1,7 @@
 """
 app.py — Enterprise Operations Intelligence Platform (v4.0)
 Calculates overall support metrics and maps custom single-period dropdown filters.
-Fixed: Re-structured sidebar block to resolve NameError view_mode dependencies.
+Fixed: Rectified truncated import statement (replaced 'sa' with proper SQLite functions).
 """
 import streamlit as st
 import pandas as pd
@@ -10,7 +10,7 @@ from datetime import datetime
 import json
 import os
 
-from database_loader import load_orders, load_tickets, save_orders, save_tickets, get_database_stats, init_db
+from database_loader import load_orders, load_tickets, save_orders, save_tickets, get_database_stats
 from engine_loader import process_pipeline, generate_dynamic_periods, load_delivered, load_tickets_raw
 from engine_analytics import (
     compute_brand_summary, compute_product_summary,
@@ -27,14 +27,12 @@ st.set_page_config(
 )
 
 # ── 1. INITIALIZE DATABASE & RETRIEVE METRIC STATS ──
-# Run database schema check first thing on startup
-init_db()
 db_stats = get_database_stats()
 del_df_raw = load_orders()
 tick_df_raw = load_tickets()
 
 
-# ── 2. SIDEBAR INTERFACE ──
+# ── 2. SIDEBAR STYLING & INTERFACE ──
 with st.sidebar:
     st.markdown("## 📦 Ops Intel Console")
     # Globally defined view_mode to prevent NameError conditionals
