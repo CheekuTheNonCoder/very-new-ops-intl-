@@ -1,7 +1,7 @@
 """
 app.py — Enterprise Operations Intelligence Platform (v4.0)
 Calculates overall support metrics and maps custom single-period dropdown filters.
-Fixed: Rectified truncated import statement (replaced 'sa' with proper SQLite functions).
+Fixed: Removed legacy Google Sheets auto_migrate triggers to prevent circular imports.
 """
 import streamlit as st
 import pandas as pd
@@ -10,7 +10,7 @@ from datetime import datetime
 import json
 import os
 
-from database_loader import load_orders, load_tickets, save_orders, save_tickets, get_database_stats
+from database_loader import load_orders, load_tickets, save_orders, save_tickets, get_database_stats, init_db
 from engine_loader import process_pipeline, generate_dynamic_periods, load_delivered, load_tickets_raw
 from engine_analytics import (
     compute_brand_summary, compute_product_summary,
@@ -28,7 +28,7 @@ st.set_page_config(
 
 # ── 1. INITIALIZE DATABASE & RETRIEVE METRIC STATS ──
 # Run database schema check first thing on startup
-auto_migrate_google_sheets()
+init_db()
 db_stats = get_database_stats()
 del_df_raw = load_orders()
 tick_df_raw = load_tickets()
@@ -72,7 +72,7 @@ with st.sidebar:
         st.caption(f"Tickets Updated: {db_stats['tickets_last_updated']}")
 
     st.divider()
-    st.caption("v5.0 • SQLite Edition")
+    st.caption("v4.0 • SQLite Edition")
 
 
 st.markdown("""
@@ -259,7 +259,7 @@ else:
         # Fallback to Month matching (e.g. "May 2026")
         f_del = del_df[del_df["Delivery Month"] == selected_period].copy()
         # Tickets strictly filtered by Ticket Creation Month (Ticket Month) for 100% operational matching
-        f_tick = tick_df[tick_df["Delivery Month"] == selected_period].copy()
+        f_tick = tick_df[tick_df["Ticket Month"] == selected_period].copy()
 
 
 # ── DATE DIAGNOSTICS FOR QUALITY ASSURANCE ──
