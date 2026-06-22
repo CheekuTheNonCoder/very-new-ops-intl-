@@ -34,16 +34,16 @@ del_df_raw = load_orders()
 tick_df_raw = load_tickets()
 
 # ── DATABASE QUALITY HEALTH & SELF-HEALING CHECK ──
-is_db_corrupted = False
+corrupt_db_flag = False
 if not tick_df_raw.empty and "raw_subcat" in tick_df_raw.columns:
     unique_subcats = set(tick_df_raw["raw_subcat"].dropna().unique())
     valid_unique_subcats = {s for s in unique_subcats if s.strip() and s.lower() not in ("nan", "none", "null")}
     # If the subcategory column ONLY contains category segment definitions (corrupted legacy state)
     if valid_unique_subcats and valid_unique_subcats.issubset({"POST_DELIVERY", "PRE_DELIVERY"}):
-        is_db_corrupted = True
+        corrupt_db_flag = True
 
 # Automated healing: Purge the corrupted legacy SQLite database instantly and refresh the state
-if is_db_corrupted:
+if corrupt_db_flag:
     if os.path.exists("operations.db"):
         try:
             os.remove("operations.db")
@@ -454,6 +454,19 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
+# ── DATABASE HEALTH ALERTS ──
+if corrupt_db_flag:
+    st.error(
+        "⚠️ **Legacy Database Corruption Detected**\n\n"
+        "The active database contains corrupted ticket subcategories (only 'POST_DELIVERY' / 'PRE_DELIVERY' values are found in the subcategory column).\n\n"
+        "This occurs because the database was populated using a previous buggy version of the code.\n\n"
+        "**How to Fix:**\n"
+        "1. Switch to **🔐 Admin Control Panel** in the sidebar.\n"
+        "2. Scroll to the **Reset Database** section.\n"
+        "3. Click **🚨 Purge & Reset Database**.\n"
+        "4. Re-upload your raw **Orders** and **Tickets** sheets to populate the database cleanly.\n\n"
+        "*(Note: If you have committed `operations.db` inside your GitHub repository, please delete it from the repo with `git rm operations.db` and push. Leaving a tracked .db file in your repo will revert your live updates on every code update)*"
+    )
 
 # ── KPI METRICS DISPLAY ──
 st.markdown("### 📊 Active Segment Performance Overview")
@@ -830,4 +843,3 @@ Please deliver: 1) Strategic Assessment, 2) Core Vulnerabilities, 3) Tactical Pr
                     st.markdown(f'<div class="ai-box">{out}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     handle_ai_error(e)
-                    
