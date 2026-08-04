@@ -91,6 +91,26 @@ STOPWORDS = {
 }
 
 
+def _find_embedded_alias(brand_lower):
+    """
+    Scans a messy/long brand-field string (e.g. a product title that was
+    accidentally entered into the brand column) for a known brand alias
+    appearing as a whole word inside it. Returns the longest matching alias
+    key, or None if nothing is found. Restricted to keys of length >= 3 to
+    avoid noisy false positives on very short aliases.
+    """
+    best_key = None
+    best_len = 0
+    for key in BRAND_ALIASES.keys():
+        if len(key) < 3:
+            continue
+        pattern = r'\b' + re.escape(key) + r'\b'
+        if re.search(pattern, brand_lower) and len(key) > best_len:
+            best_key = key
+            best_len = len(key)
+    return best_key
+
+
 def normalize_brand_name(raw):
     """Parses and normalizes raw brand names using strict alias matching."""
     if not isinstance(raw, str):
@@ -113,6 +133,18 @@ def normalize_brand_name(raw):
     if matches:
         result = BRAND_ALIASES[matches[0]]
         return result if result else "Unmapped Brand"
+
+    # Messy/product-title fallback: some tickets have the product name
+    # (e.g. "Order TecSox Pulse 611 Bluetooth Earbuds | Deep Bass") sitting
+    # in the brand column instead of the actual brand. If the string looks
+    # like a product title (long, or many words) rather than a clean brand
+    # name, try to recover a known brand hiding inside it.
+    if len(key) > 25 or len(key.split()) >= 4:
+        embedded = _find_embedded_alias(key)
+        if embedded:
+            result = BRAND_ALIASES[embedded]
+            return result if result else "Unmapped Brand"
+
     return cleaned
 
 
