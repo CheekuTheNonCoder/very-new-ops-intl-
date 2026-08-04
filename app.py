@@ -18,7 +18,51 @@ from engine_analytics import (
     compute_subcat_summary, HIGH_SUBCATS
 )
 from engine_export import generate_excel_report
-
+from engine_normalize import normalize_brand_name
+ 
+with st.expander("🔧 TEMP DEBUG: Brand Overlap Diagnostic (remove after fixing)", expanded=True):
+    _del_raw = load_orders()
+    _tick_raw = load_tickets()
+ 
+    st.write("Orders table shape:", _del_raw.shape)
+    st.write("Tickets table shape:", _tick_raw.shape)
+ 
+    if not _del_raw.empty and not _tick_raw.empty and "raw_brand" in _del_raw.columns and "raw_brand" in _tick_raw.columns:
+        _del_raw["brand"] = _del_raw["raw_brand"].apply(normalize_brand_name)
+        _tick_raw["brand"] = _tick_raw["raw_brand"].apply(normalize_brand_name)
+ 
+        _order_brands = set(_del_raw["brand"].unique())
+        _ticket_brands = set(_tick_raw["brand"].unique())
+        _overlap = _order_brands & _ticket_brands
+        _only_tickets = _ticket_brands - _order_brands
+ 
+        st.write("Distinct brands in ORDERS:", len(_order_brands))
+        st.write("Distinct brands in TICKETS:", len(_ticket_brands))
+        st.write("Brands present in BOTH:", len(_overlap))
+        st.write("Brands ONLY in tickets (these show delivered=0):", len(_only_tickets))
+ 
+        st.write("### Top 15 ticket-only brands (with a sample raw value each)")
+        _tick_counts = _tick_raw["brand"].value_counts()
+        _broken = _tick_counts[_tick_counts.index.isin(_only_tickets)].head(15)
+        _rows = []
+        for _b, _c in _broken.items():
+            _sample = _tick_raw[_tick_raw["brand"] == _b]["raw_brand"].iloc[0]
+            _rows.append({"normalized_brand": _b, "ticket_count": _c, "sample_raw_brand": _sample})
+        st.dataframe(_rows)
+ 
+        st.write("### Sample raw_brand values directly from ORDERS table (first 15)")
+        st.dataframe(_del_raw[["raw_brand", "brand"]].drop_duplicates().head(15))
+ 
+        st.write("### Sample raw_brand values directly from TICKETS table (first 15)")
+        st.dataframe(_tick_raw[["raw_brand", "brand"]].drop_duplicates().head(15))
+    else:
+        st.error("raw_brand column missing or one of the tables is empty — this itself is the bug.")
+        st.write("Orders columns:", list(_del_raw.columns) if not _del_raw.empty else "EMPTY TABLE")
+        st.write("Tickets columns:", list(_tick_raw.columns) if not _tick_raw.empty else "EMPTY TABLE")
+# ============================================================
+# END TEMP DEBUG PANEL
+# ============================================================
+ 
 st.set_page_config(
     page_title="OPX Operations Intelligence",
     page_icon="📦",
