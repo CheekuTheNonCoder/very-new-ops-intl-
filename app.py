@@ -1,6 +1,6 @@
 """
-app.py — OPX Operations Intelligence Platform (v4.4 - Superfast Edition)
-Calculates overall support metrics and maps custom single-period dropdown filters.
+app.py — OPX Operations Intelligence Platform (v4.5 - Welcome & Dynamic Themes)
+Main entrance splits dynamically into ZOP (Yellow) or Afora (Green) workspaces.
 """
 import streamlit as st
 import pandas as pd
@@ -26,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── 1. INITIALIZE DATABASE & RETRIEVE METRIC STATS ──
+# ── 1. INITIALIZE DATABASE ──
 init_db()
 db_stats = get_database_stats()
 
@@ -49,7 +49,6 @@ def check_db_health(tickets_last_updated):
     return False
 
 corrupt_db_flag = check_db_health(db_stats['tickets_last_updated'])
-
 if corrupt_db_flag:
     if os.path.exists("operations.db"):
         try:
@@ -59,17 +58,104 @@ if corrupt_db_flag:
         except Exception:
             pass
 
-# ── 2. SIDEBAR STYLING & INTERFACE ──
-with st.sidebar:
+# ── INITIALIZE PORTAL SELECTION STATE ──
+if "marketplace" not in st.session_state:
+    st.session_state["marketplace"] = None
+
+# ── 2. PORTAL SELECTION GATEWAY (WELCOME SCREEN) ──
+if st.session_state["marketplace"] is None:
+    # Full screen layout styling for split cards
     st.markdown("""
-    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 2rem; margin-top: 1rem;">
-        <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 0px 8px rgba(59, 130, 246, 0.6));">
-            <path d="M23 2C32 2 39 5 39 12V24C39 31.5 32.5 38 23 44C13.5 38 7 31.5 7 24V12C7 5 14 2 23 2Z" fill="#0F172A" stroke="#3B82F6" stroke-width="2"/>
+    <div style="text-align: center; margin-top: 5vh; margin-bottom: 5vh;">
+        <h1 style="color: #FFFFFF; font-weight: 800; font-size: 38px; letter-spacing: 0.05em; margin: 0;">SELECT OPERATIONS PORTAL</h1>
+        <p style="color: #64748B; font-size: 14px; font-weight: 500; margin-top: 8px;">Switch workspaces instantly based on your target segment analysis.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        # ZOP Card Matching Image Colors (Bright Yellow)
+        st.markdown("""
+        <div style="background-color: #FFF41A; padding: 4rem 2rem; border-radius: 20px; text-align: center; border: 2px solid #E4DA15; box-shadow: 0 10px 30px rgba(255, 244, 26, 0.15); margin-bottom: 20px;">
+            <h2 style="color: #000000; font-family: 'Inter', sans-serif; font-weight: 900; font-size: 64px; margin: 0; letter-spacing: -0.05em; line-height: 1.1;">Zop</h2>
+            <p style="color: #1A1A1A; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 15px;">Core Deliveries & Direct Logistics</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🔌 Access ZOP Workplace", use_container_width=True, key="access_zop_btn"):
+            st.session_state["marketplace"] = "ZOP"
+            st.rerun()
+            
+    with col2:
+        # Afora Card Matching Image Colors (Soft Light Green)
+        st.markdown("""
+        <div style="background-color: #C6E2A3; padding: 4rem 2rem; border-radius: 20px; text-align: center; border: 2px solid #B0CC8E; box-shadow: 0 10px 30px rgba(198, 226, 163, 0.15); margin-bottom: 20px;">
+            <h2 style="color: #000000; font-family: 'Inter', sans-serif; font-weight: 900; font-size: 64px; margin: 0; letter-spacing: -0.05em; line-height: 1.1;">afora</h2>
+            <p style="color: #2D2D2D; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 15px;">Alternative Marketplace Integrator</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🔌 Access Afora Workplace", use_container_width=True, key="access_afora_btn"):
+            st.session_state["marketplace"] = "Afora"
+            st.rerun()
+            
+    st.stop() # Stop rendering the main dashboard if no workspace is selected
+
+# ── 3. DYNAMIC PORTAL ACCENT THEME DESIGNER ──
+if st.session_state["marketplace"] == "ZOP":
+    theme_accent = "#FFF41A" # Zop Yellow Accent
+    theme_accent_light = "rgba(255, 244, 26, 0.12)"
+    theme_border = "rgba(255, 244, 26, 0.25)"
+    theme_glow = "0 4px 20px rgba(255, 244, 26, 0.12)"
+else:
+    theme_accent = "#C6E2A3" # Afora Pastel Green Accent
+    theme_accent_light = "rgba(198, 226, 163, 0.12)"
+    theme_border = "rgba(198, 226, 163, 0.25)"
+    theme_glow = "0 4px 20px rgba(198, 226, 163, 0.12)"
+
+# Dynamic custom theme injection
+st.markdown(f"""
+<style>
+html, body, [data-testid="stAppViewContainer"] {{
+    background: #080B11 !important;
+    font-family: 'Inter', sans-serif !important;
+    color: #E2E8F0 !important;
+}}
+.kpi-card {{
+    background: rgba(17, 24, 39, 0.7) !important;
+    backdrop-filter: blur(12px);
+    border: 1px solid {theme_border} !important;
+    border-radius: 12px !important;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    transition: all 0.2s ease-in-out;
+}}
+.kpi-card:hover {{
+    transform: translateY(-2px);
+    border-color: {theme_accent} !important;
+    box-shadow: {theme_glow} !important;
+}}
+.kpi-card.blue {{ border-left: 4px solid {theme_accent} !important; }}
+.badge {{
+    color: {theme_accent} !important;
+    border-color: {theme_border} !important;
+}}
+button[kind="secondary"] {{
+    border-color: {theme_border} !important;
+    color: {theme_accent} !important;
+}}
+</style>
+""", unsafe_allow_html=True)
+
+# ── 4. SIDEBAR CONFIGURATIONS & INTERFACE ──
+with st.sidebar:
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 1.5rem; margin-top: 1rem;">
+        <svg width="46" height="46" viewBox="0 0 46 46" fill="none" style="filter: drop-shadow(0px 0px 8px {theme_accent});">
+            <path d="M23 2C32 2 39 5 39 12V24C39 31.5 32.5 38 23 44C13.5 38 7 31.5 7 24V12C7 5 14 2 23 2Z" fill="#0F172A" stroke="{theme_accent}" stroke-width="2"/>
             <text x="50%" y="58%" dominant-baseline="middle" text-anchor="middle" font-family="'Inter', sans-serif" font-weight="900" font-size="11" fill="#FFFFFF">OPX</text>
         </svg>
         <div>
             <h2 style="margin:0; font-size:18px; font-weight:700; color:#FFFFFF; letter-spacing:0.05em; line-height:1.2;">OPX</h2>
-            <p style="margin:0; font-size:9px; color:#64748B; font-weight:600; text-transform:uppercase; letter-spacing:0.08em;">Enterprise Ops Analytics</p>
+            <p style="margin:0; font-size:9px; color:#64748B; font-weight:600; text-transform:uppercase;">{st.session_state["marketplace"]} Workspace</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -79,6 +165,18 @@ with st.sidebar:
     
     st.divider()
     
+    # Marketplace Fast Switcher
+    st.markdown("**Active Portal Workspace**")
+    switch_mkt = st.selectbox("Active Workspace", ["ZOP", "Afora"], index=0 if st.session_state["marketplace"] == "ZOP" else 1)
+    if switch_mkt != st.session_state["marketplace"]:
+        st.session_state["marketplace"] = switch_mkt
+        st.rerun()
+        
+    if st.button("🔙 Switch to Entrance Hub", use_container_width=True):
+        st.session_state["marketplace"] = None
+        st.rerun()
+
+    st.divider()
     if view_mode == "📈 Public Dashboard":
         st.markdown("**Severity Threshold Metrics**")
         with st.expander("Configure Matrix Thresholds"):
@@ -99,7 +197,7 @@ with st.sidebar:
             except:
                 api_key = ""
             if not api_key:
-                api_key = st.text_input("GCP Gemini API Key", type="password", help="Enter Google Gemini API Key")
+                api_key = st.text_input("GCP Gemini API Key", type="password")
     else:
         st.markdown("**Database Statistics**")
         st.metric("Total Orders In DB", f"{db_stats['total_orders']:,}")
@@ -108,36 +206,7 @@ with st.sidebar:
         st.caption(f"Tickets Updated: {db_stats['tickets_last_updated']}")
 
     st.divider()
-    st.caption("v4.4 • SQLite Speed Edition")
-
-# ── Premium CSS Injection ──
-st.markdown("""
-<style>
-html, body, [data-testid="stAppViewContainer"] {
-    background: #080B11 !important;
-    font-family: 'Inter', sans-serif !important;
-    color: #E2E8F0 !important;
-}
-.kpi-card {
-    background: rgba(17, 24, 39, 0.7) !important;
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
-    border-radius: 12px !important;
-    padding: 1.25rem;
-    margin-bottom: 1rem;
-    transition: all 0.2s ease-in-out;
-}
-.kpi-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(59, 130, 246, 0.3) !important;
-}
-.kpi-card.blue { border-left: 4px solid #3B82F6 !important; }
-.kpi-card.orange { border-left: 4px solid #F97316 !important; }
-.kpi-card.amber { border-left: 4px solid #F59E0B !important; }
-.kpi-card.purple { border-left: 4px solid #8B5CF6 !important; }
-.kpi-card.green { border-left: 4px solid #22C55E !important; }
-</style>
-""", unsafe_allow_html=True)
+    st.caption("v4.5 • Dynamic Theme Edition")
 
 def kpi(label, value, sub="", color="blue"):
     st.markdown(f"""
@@ -152,10 +221,21 @@ def kpi(label, value, sub="", color="blue"):
 
 # ── PIPELINE CALCULATIONS ENGINE RUNNER WITH TIMESTAMP HASHING ──
 @st.cache_data(show_spinner=False)
-def run_pipeline_cached(orders_updated, tickets_updated, app_version="v4.4"):
-    """Loads raw data and runs the calculations inside a cached wrapper."""
+def run_pipeline_cached(orders_updated, tickets_updated, app_version="v4.5"):
     del_df_raw = load_orders()
     tick_df_raw = load_tickets()
+    
+    # ── SELF-HEALING FALLBACK FOR OLD DATABASES ──
+    # If users run this updated version against an existing SQLite file without marketplace columns,
+    # we automatically heal the tables on-the-fly to prevent any SQL schema errors.
+    if not del_df_raw.empty and "marketplace" not in del_df_raw.columns:
+        is_a_del = del_df_raw["order_id"].astype(str).str.upper().str.contains("AFORA", na=False)
+        del_df_raw["marketplace"] = np.where(is_a_del, "Afora", "ZOP")
+        
+    if not tick_df_raw.empty and "marketplace" not in tick_df_raw.columns:
+        is_a_tick = tick_df_raw["order_id"].astype(str).str.upper().str.contains("AFORA", na=False)
+        tick_df_raw["marketplace"] = np.where(is_a_tick, "Afora", "ZOP")
+        
     return process_pipeline(del_df_raw, tick_df_raw)
 
 # ── COLD START DATA VALIDATOR ──
@@ -233,8 +313,15 @@ redist_sum = D["redist_summary"]
 orig = D.get("original_ticket_count", 0)
 final_c = D.get("final_ticket_count", 0)
 val_ok = D.get("validation_ok", False)
-period_options = D["period_options"]
-available_months = D["available_months"]
+
+# ── BIFURCATE DATA BASED ON SELECTION ──
+selected_mkt = st.session_state["marketplace"]
+f_del_mkt = del_df[del_df["marketplace"] == selected_mkt].copy()
+f_tick_mkt = tick_df[tick_df["marketplace"] == selected_mkt].copy()
+
+# Pre-calculate period lists for filtered marketplace
+period_options = generate_dynamic_periods(f_del_mkt, "raw_date")
+available_months = sorted(f_del_mkt["Delivery Month Sort"].dropna().unique())
 
 # ── TIME INTELLIGENCE & FILTER INTERFACE ──
 st.markdown("### 📊 Time Intelligence Filter")
@@ -242,20 +329,20 @@ selected_period = st.selectbox("Select Filter Period", period_options)
 
 # Vectorized Date Slicing (Instant)
 if selected_period == "All Data":
-    f_del = del_df.copy()
-    f_tick = tick_df.copy()
+    f_del = f_del_mkt.copy()
+    f_tick = f_tick_mkt.copy()
 else:
     if "," in selected_period:
         try:
             parsed_date_str = str(pd.to_datetime(selected_period, format="%B %d, %Y").date())
-            f_del = del_df[del_df["Delivery Date"] == parsed_date_str].copy()
-            f_tick = tick_df[tick_df["Ticket Date"] == parsed_date_str].copy()
+            f_del = f_del_mkt[f_del_mkt["Delivery Date"] == parsed_date_str].copy()
+            f_tick = f_tick_mkt[f_tick_mkt["Ticket Date"] == parsed_date_str].copy()
         except Exception:
-            f_del = del_df[del_df["Delivery Month"] == selected_period].copy()
-            f_tick = tick_df[tick_df["Ticket Month"] == selected_period].copy()
+            f_del = f_del_mkt[f_del_mkt["Delivery Month"] == selected_period].copy()
+            f_tick = f_tick_mkt[f_tick_mkt["Ticket Month"] == selected_period].copy()
     else:
-        f_del = del_df[del_df["Delivery Month"] == selected_period].copy()
-        f_tick = tick_df[tick_df["Ticket Month"] == selected_period].copy()
+        f_del = f_del_mkt[f_del_mkt["Delivery Month"] == selected_period].copy()
+        f_tick = f_tick_mkt[f_tick_mkt["Ticket Month"] == selected_period].copy()
 
 # ── OPERATIONS UNIVERSE SEGMENT SELECTOR ──
 st.markdown("### 🔍 Segment Category Filter")
@@ -338,10 +425,10 @@ if has_comparison:
     month_a = m_names[-2]
     month_b = m_names[-1]
     
-    del_a = del_df[del_df["Delivery Month"] == month_a]
-    tick_a = tick_df[tick_df["Delivery Month"] == month_a]
-    del_b = del_df[del_df["Delivery Month"] == month_b]
-    tick_b = tick_df[tick_df["Delivery Month"] == month_b]
+    del_a = f_del_mkt[f_del_mkt["Delivery Month"] == month_a]
+    tick_a = f_tick_mkt[f_tick_mkt["Delivery Month"] == month_a]
+    del_b = f_del_mkt[f_del_mkt["Delivery Month"] == month_b]
+    tick_b = f_tick_mkt[f_tick_mkt["Delivery Month"] == month_b]
     
     brand_a = compute_brand_summary(del_df=del_a, tick_df=tick_a, analysis_mode=analysis_mode, crit_del=crit_del, crit_esc=crit_esc, crit_tix=crit_tix, high_del=high_del, high_esc=high_esc, med_del=med_del, med_esc=med_esc).set_index("brand")
     brand_b = compute_brand_summary(del_df=del_b, tick_df=tick_b, analysis_mode=analysis_mode, crit_del=crit_del, crit_esc=crit_esc, crit_tix=crit_tix, high_del=high_del, high_esc=high_esc, med_del=med_del, med_esc=med_esc).set_index("brand")
@@ -371,7 +458,7 @@ if has_comparison:
     comp_df_prod = comp_df_prod[["Brand", "Product", "Month A Esc %", "Month B Esc %", "Esc % Difference", "Esc Movement Status"]]
 
 # ── KPI METRICS DISPLAY ──
-st.markdown("### 📊 Active Segment Performance Overview")
+st.markdown(f"### 📊 Active Segment {st.session_state['marketplace'].upper()} Performance Overview")
 if analysis_mode == "Combined":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1: kpi("Delivered Orders", f"{v_delivered_rows:,}", "Post Denominator", "blue")
@@ -530,5 +617,4 @@ with tab8:
     elif not api_key:
         st.warning("Please enter your Google Gemini API Key in the sidebar.")
     else:
-        # Simple flash generation via direct api calling to avoid heavy dependencies
         st.write("AI analysis modules loaded and ready.")
