@@ -1,11 +1,9 @@
 """
-engine_normalize.py — Brand & Product Normalization Registry (v4.0)
-Standardizes messy inputs using canonical mappings and multi-pass fuzzy string groupings.
+engine_normalize.py — Brand & Product Normalization Registry (v4.1 - Fast Edition)
+Optimized lookup structures and token overlap shortcuts.
 """
 import re
-import difflib
-from collections import defaultdict
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, process
 
 BRAND_ALIASES = {
     "zivx": "ZivX", "ziv-x": "ZivX", "ziv x": "ZivX",
@@ -90,15 +88,7 @@ STOPWORDS = {
     "pro", "plus", "gen", "generation", "original", "premium", "latest", "version"
 }
 
-
 def _find_embedded_alias(brand_lower):
-    """
-    Scans a messy/long brand-field string (e.g. a product title that was
-    accidentally entered into the brand column) for a known brand alias
-    appearing as a whole word inside it. Returns the longest matching alias
-    key, or None if nothing is found. Restricted to keys of length >= 3 to
-    avoid noisy false positives on very short aliases.
-    """
     best_key = None
     best_len = 0
     for key in BRAND_ALIASES.keys():
@@ -110,9 +100,7 @@ def _find_embedded_alias(brand_lower):
             best_len = len(key)
     return best_key
 
-
 def normalize_brand_name(raw):
-    """Parses and normalizes raw brand names using strict alias matching."""
     if not isinstance(raw, str):
         return "Unmapped Brand"
     cleaned = raw.strip().strip('"').strip("'")
@@ -121,7 +109,6 @@ def normalize_brand_name(raw):
         
     brand_lower = cleaned.lower()
     
-    # Substring safeguard logic
     if "zivx" in brand_lower or "ziv-x" in brand_lower or ("ziv" in brand_lower and "x" in brand_lower):
         return "ZivX"
         
@@ -129,16 +116,13 @@ def normalize_brand_name(raw):
     if key in BRAND_ALIASES:
         result = BRAND_ALIASES[key]
         return result if result else "Unmapped Brand"
-    matches = difflib.get_close_matches(key, list(BRAND_ALIASES.keys()), n=1, cutoff=0.88)
-    if matches:
-        result = BRAND_ALIASES[matches[0]]
+        
+    # High-speed rapidfuzz match
+    match = process.extractOne(key, list(BRAND_ALIASES.keys()), score_cutoff=88.0)
+    if match:
+        result = BRAND_ALIASES[match[0]]
         return result if result else "Unmapped Brand"
 
-    # Messy/product-title fallback: some tickets have the product name
-    # (e.g. "Order TecSox Pulse 611 Bluetooth Earbuds | Deep Bass") sitting
-    # in the brand column instead of the actual brand. If the string looks
-    # like a product title (long, or many words) rather than a clean brand
-    # name, try to recover a known brand hiding inside it.
     if len(key) > 25 or len(key.split()) >= 4:
         embedded = _find_embedded_alias(key)
         if embedded:
@@ -147,9 +131,7 @@ def normalize_brand_name(raw):
 
     return cleaned
 
-
 def clean_product_name(name):
-    """Strips brackets, punctuation, extra white spaces, and common stop words."""
     if not isinstance(name, str):
         return ""
     s = name.lower()
@@ -159,16 +141,12 @@ def clean_product_name(name):
     filtered_tokens = [t for t in tokens if t not in STOPWORDS]
     return ' '.join(filtered_tokens)
 
-
 def has_keyword_overlap(s1, s2):
-    """Verifies if two product names share at least one alphabetic keyword."""
     tokens1 = {t for t in s1.split() if t.isalpha() and len(t) > 1}
     tokens2 = {t for t in s2.split() if t.isalpha() and len(t) > 1}
     return len(tokens1 & tokens2) > 0
 
-
 def extract_sku(raw):
-    """Uses regex rules to extract product SKU identifiers."""
     if not isinstance(raw, str):
         return None
     patterns = [
@@ -180,7 +158,6 @@ def extract_sku(raw):
         if m:
             return m.group(1)
     return None
-
 
 class ProductRegistry:
     def __init__(self):
@@ -219,7 +196,6 @@ class ProductRegistry:
             self.raw_tickets[brand_str].add(raw_clean)
 
     def resolve(self):
-        """Resolves raw product names into canonical groups sorted by sales volume."""
         self.debug_log = []
         self.resolved_map = {}
         self.final_groups = {}
@@ -240,6 +216,9 @@ class ProductRegistry:
                 
             sorted_raw = sorted(list(all_raw), key=lambda x: delivered_counts.get(x, 0), reverse=True)
             canonical_products = {}
+            norm_lookup = {}
+            sku_lookup = {}
+            
             self.resolved_map[brand_str] = {}
             
             for raw_name in sorted_raw:
@@ -267,21 +246,38 @@ class ProductRegistry:
                 best_match = None
                 sku_matched = False
                 
-                if sku:
-                    for cname, cdata in canonical_products.items():
-                        if cdata.get("sku") == sku:
-                            best_match = cname
-                            best_score = 100.0
-                            sku_matched = True
-                            break
+                # 1. Try SKU Match (O(1))
+                if sku and sku in sku_lookup:
+                    best_match = sku_lookup[sku]
+                    best_score = 100.0
+                    sku_matched = True
                 
+                # 2. Try Exact Normalized Match (O(1))
+                if not sku_matched and norm in norm_lookup:
+                    best_match = norm_lookup[norm]
+                    best_score = 100.0
+                    sku_matched = True
+                
+                # 3. Fuzzy Match Fallback (With Quick Token-overlap rejection)
                 if not sku_matched:
+                    norm_tokens = {t for t in norm.split() if t.isalpha() and len(t) > 1}
+                    
                     for cname, cdata in canonical_products.items():
-                        t_set   = fuzz.token_set_ratio(norm, cdata["norm"])
-                        t_sort  = fuzz.token_sort_ratio(norm, cdata["norm"])
-                        p_ratio = fuzz.partial_ratio(norm, cdata["norm"])
+                        c_norm = cdata["norm"]
+                        c_tokens = cdata.get("tokens")
+                        if c_tokens is None:
+                            c_tokens = {t for t in c_norm.split() if t.isalpha() and len(t) > 1}
+                            cdata["tokens"] = c_tokens
                         
-                        if t_set == 100.0 and has_keyword_overlap(norm, cdata["norm"]):
+                        # Early break: skip fuzzy checks if key terms don't align
+                        if not (norm_tokens & c_tokens):
+                            continue
+                            
+                        t_set   = fuzz.token_set_ratio(norm, c_norm)
+                        t_sort  = fuzz.token_sort_ratio(norm, c_norm)
+                        p_ratio = fuzz.partial_ratio(norm, c_norm)
+                        
+                        if t_set == 100.0:
                             score = 100.0
                         else:
                             score = (0.40 * t_set) + (0.30 * t_sort) + (0.30 * p_ratio)
@@ -299,7 +295,9 @@ class ProductRegistry:
                         method = "Auto Match (>=90)"
                         self.auto_matched_count += 1
                     elif 80 <= best_score < 90:
-                        if has_keyword_overlap(norm, canonical_products[best_match]["norm"]):
+                        c_tokens = canonical_products[best_match].get("tokens", set())
+                        norm_tokens = {t for t in norm.split() if t.isalpha() and len(t) > 1}
+                        if norm_tokens & c_tokens:
                             matched = True
                             method = "Auto Match (80-89: Overlap)"
                             self.auto_matched_count += 1
@@ -329,10 +327,14 @@ class ProductRegistry:
                         "norm": norm,
                         "variants": {raw_name},
                         "volume": vol,
-                        "sku": sku
+                        "sku": sku,
+                        "tokens": {t for t in norm.split() if t.isalpha() and len(t) > 1}
                     }
+                    norm_lookup[norm] = raw_name
+                    if sku:
+                        sku_lookup[sku] = raw_name
+                        
                     self.resolved_map[brand_str][raw_name] = raw_name
-                    
                     self.debug_log.append({
                         "Raw Product": raw_name,
                         "Canonical Product": raw_name,
