@@ -1,6 +1,7 @@
 """
-engine_loader.py — Time Intelligence & Dynamic Loader (v4.1 - Fast Edition)
+engine_loader.py — Time Intelligence & Dynamic Loader (v4.2 - Marketplace Bifurcation)
 Removed all iterative row loops in favor of vectorized grouping operations.
+Identifies and tags records by marketplace (ZOP vs Afora) based on order IDs.
 """
 import io
 import pandas as pd
@@ -165,12 +166,17 @@ def load_delivered(df_or_bytes):
     brand_col = _detect_brand_col(df)
     prod_col = _detect_product_col(df)
     
+    # Marketplace extraction based on order id value
+    order_ids = df[order_col].astype(str).str.strip()
+    marketplace = np.where(order_ids.str.upper().str.contains("AFORA", na=False), "Afora", "ZOP")
+    
     out = pd.DataFrame({
-        "order_id": df[order_col].astype(str).str.strip(),
+        "order_id": order_ids,
         "raw_date": df[date_col],
         "raw_brand": df[brand_col].astype(str).str.strip().str.strip('"'),
         "raw_product": df[prod_col].astype(str).str.strip().str.strip('"'),
-        "order_status": df[status_col].astype(str).str.strip() if status_col else "delivered"
+        "order_status": df[status_col].astype(str).str.strip() if status_col else "delivered",
+        "marketplace": marketplace
     })
     
     status_clean = out["order_status"].astype(str).str.lower().str.strip()
@@ -197,12 +203,16 @@ def load_tickets_raw(df_or_bytes):
     if cat_col == subcat_col:
         raise ValueError(f"Column Collision: {cat_col} resolved twice.")
         
+    order_ids = df[order_col].astype(str).str.strip()
+    marketplace = np.where(order_ids.str.upper().str.contains("AFORA", na=False), "Afora", "ZOP")
+    
     out = pd.DataFrame({
-        "order_id": df[order_col].astype(str).str.strip(),
+        "order_id": order_ids,
         "raw_date": df[date_col],
         "raw_brand": df[brand_col].astype(str).str.strip().str.strip('"'),
         "raw_product": df[prod_col].astype(str).str.strip().str.strip('"'),
         "raw_subcat":  df[subcat_col].astype(str).str.strip(),
+        "marketplace": marketplace
     })
     
     out["raw_category"] = df[cat_col].fillna("NULL").astype(str).str.strip() if cat_col else "NULL"
@@ -243,7 +253,7 @@ def process_pipeline(del_input, tick_input, rng_seed=42):
     valid_mask = tick_raw["brand"] != "Unmapped Brand"
     valid_ticks = tick_raw[valid_mask].copy()
 
-    # ── Step 4: Product Registry Matching (Vectorized Populate) ──
+    # ── Step 4: Product Registry Matching ──
     registry = ProductRegistry()
     
     del_counts = del_clean.groupby(["brand", "raw_product"]).size()
@@ -256,13 +266,11 @@ def process_pipeline(del_input, tick_input, rng_seed=42):
         
     registry.resolve()
 
-    # Fast mapping lookup dict
     flat_lookup = {}
     for brand, p_map in registry.resolved_map.items():
         for raw_p, canon_p in p_map.items():
             flat_lookup[(str(brand), str(raw_p).strip().strip('"').strip("'"))] = canon_p
 
-    # Linear list comprehensions to replace slow apply(axis=1) logic
     del_clean["canonical_product"] = [
         flat_lookup.get((str(b), str(p).strip().strip('"').strip("'")), p)
         for b, p in zip(del_clean["brand"], del_clean["raw_product"])
@@ -292,7 +300,7 @@ def process_pipeline(del_input, tick_input, rng_seed=42):
     all_ticks = pd.concat([valid_ticks, dist_brand], ignore_index=True)
     val_ok = len(all_ticks) == ORIGINAL_TICKET_COUNT
 
-    # ── Step 6: Subcategory Normalization (Vectorized Zip comprehension) ──
+    # ── Step 6: Subcategory Normalization ──
     n_nf = int((all_ticks["raw_subcat"] == "Not Found").sum())
     n_nd = int((all_ticks["raw_subcat"] == "Need Details").sum())
     
@@ -309,7 +317,6 @@ def process_pipeline(del_input, tick_input, rng_seed=42):
 
     redist_summary = build_redistribution_summary(len(brand_unmapped), n_nf, n_nd, brand_weights)
     
-    # Pre-calculating UI date fields to remove runtime latency on filter changes
     period_options = generate_dynamic_periods(del_clean, "raw_date")
     available_months = sorted(del_clean["Delivery Month Sort"].dropna().unique())
 
